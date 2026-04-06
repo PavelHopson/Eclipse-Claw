@@ -1,0 +1,42 @@
+{
+  "name": "create-eclipse-claw",
+  "version": "0.1.3",
+  "mcpName": "io.github.PavelHopson/eclipse-claw",
+  "description": "Set up eclipse-claw MCP server for AI agents (Claude, Cursor, Windsurf, OpenCode, Codex, Antigravity)",
+  "bin": {
+    "create-eclipse-claw": "./index.mjs"
+  },
+  "type": "module",
+  "keywords": [
+    "eclipse-claw",
+    "mcp",
+    "mcp-server",
+    "ai",
+    "ai-agent",
+    "scraping",
+    "web-scraping",
+    "scraper",
+    "crawler",
+    "extract",
+    "markdown",
+    "llm",
+    "claude",
+    "cursor",
+    "windsurf",
+    "opencode",
+    "codex",
+    "antigravity",
+    "tls-fingerprint",
+    "cloudflare-bypass"
+  ],
+  "author": "eclipse-claw",
+  "license": "AGPL-3.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/PavelHopson/eclipse-claw"
+  },
+  "homepage": "https://webclaw.io",
+  "engines": {
+    "node": ">=18"
+  }
+}
