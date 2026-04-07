@@ -1,5 +1,5 @@
 /// Provider chain — tries providers in order until one succeeds.
-/// Default order: Ollama (local, free) -> OpenAI -> Anthropic.
+/// Default order: Ollama (local, free) -> DeepSeek -> OpenAI -> Anthropic.
 /// Only includes providers that are actually configured/available.
 use async_trait::async_trait;
 use tracing::{debug, warn};
@@ -7,7 +7,10 @@ use tracing::{debug, warn};
 use crate::error::LlmError;
 use crate::provider::{CompletionRequest, LlmProvider};
 use crate::providers::{
-    anthropic::AnthropicProvider, ollama::OllamaProvider, openai::OpenAiProvider,
+    anthropic::AnthropicProvider,
+    deepseek::DeepSeekProvider,
+    ollama::OllamaProvider,
+    openai::OpenAiProvider,
 };
 
 pub struct ProviderChain {
@@ -27,6 +30,11 @@ impl ProviderChain {
             providers.push(Box::new(ollama));
         } else {
             debug!("ollama not available, skipping");
+        }
+
+        if let Some(deepseek) = DeepSeekProvider::new(None, None) {
+            debug!("deepseek configured, adding to chain");
+            providers.push(Box::new(deepseek));
         }
 
         if let Some(openai) = OpenAiProvider::new(None, None, None) {

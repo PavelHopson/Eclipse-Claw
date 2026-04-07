@@ -282,6 +282,12 @@ struct Cli {
     /// Filenames are derived from URL paths (e.g. /docs/api -> docs/api.md).
     #[arg(long)]
     output_dir: Option<PathBuf>,
+
+    /// Output JSONL (newline-delimited JSON) — one compact JSON object per URL.
+    /// Ideal for streaming pipelines: `eclipse-claw --urls-file urls.txt --jsonl | jq '.metadata.title'`
+    /// Overrides --format when multiple URLs are processed.
+    #[arg(long)]
+    jsonl: bool,
 }
 
 #[derive(Clone, ValueEnum)]
@@ -1046,7 +1052,33 @@ fn print_crawl_output(result: &CrawlResult, format: &OutputFormat, show_metadata
     }
 }
 
-fn print_batch_output(results: &[BatchExtractResult], format: &OutputFormat, show_metadata: bool) {
+fn print_batch_output(results: &[BatchExtractResult], format: &OutputFormat, show_metadata: bool, jsonl: bool) {
+    // JSONL mode: one compact JSON record per URL, streamed line-by-line.
+    // Suitable for large batches, log pipelines, and jq processing.
+    if jsonl {
+        for r in results {
+            let record = match &r.result {
+                Ok(extraction) => serde_json::json!({
+                    "ok": true,
+                    "url": r.url,
+                    "metadata": extraction.metadata,
+                    "content": {
+                        "markdown": extraction.content.markdown,
+                        "plain_text": extraction.content.plain_text,
+                        "word_count": extraction.metadata.word_count,
+                    },
+                }),
+                Err(e) => serde_json::json!({
+                    "ok": false,
+                    "url": r.url,
+                    "error": e.to_string(),
+                }),
+            };
+            println!("{}", serde_json::to_string(&record).expect("serialization failed"));
+        }
+        return;
+    }
+
     match format {
         OutputFormat::Json => {
             // Build a JSON array of {url, result?, error?} objects
@@ -1410,7 +1442,7 @@ async fn run_batch(cli: &Cli, entries: &[(String, Option<String>)]) -> Result<()
         }
         eprintln!("Saved {saved} files to {}", dir.display());
     } else {
-        print_batch_output(&results, &cli.format, cli.metadata);
+        print_batch_output(&results, &cli.format, cli.metadata, cli.jsonl);
     }
 
     eprintln!(

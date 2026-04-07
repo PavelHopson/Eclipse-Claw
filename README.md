@@ -91,7 +91,10 @@ docker compose up -d
 | **Скорость (100 КБ)** | **3.2 мс** | ~500 мс | 18.4 мс | 8.7 мс |
 | **TLS-отпечатки** | Да | Нет | Нет | Нет |
 | **Self-hosted** | Да | Нет | Да | Да |
+| **REST API сервер** | **Да** | Да | Нет | Нет |
 | **MCP-сервер** | Да | Нет | Нет | Нет |
+| **DeepSeek поддержка** | **Да** | Нет | Нет | Нет |
+| **JSONL-вывод** | **Да** | Нет | Нет | Нет |
 | **Без браузера** | Да | Нет | Да | Да |
 | **Стоимость** | Бесплатно | $$$$ | Бесплатно | Бесплатно |
 
@@ -288,6 +291,58 @@ eclipse-claw URLs --proxy-file proxies.txt            # Пул с ротацие
 
 ---
 
+## Уникальные возможности Eclipse Claw
+
+### REST API сервер
+
+В отличие от большинства аналогов, Eclipse Claw включает встроенный HTTP-сервер для интеграции с любым стеком:
+
+```bash
+# Запустить сервер
+eclipse-claw-server --addr 0.0.0.0:3000
+
+# Извлечь контент
+curl -X POST http://localhost:3000/extract \
+  -H 'Content-Type: application/json' \
+  -d '{"url": "https://example.com"}'
+
+# Суммаризация через LLM (Ollama/DeepSeek/OpenAI — автоцепочка)
+curl -X POST http://localhost:3000/summarise \
+  -H 'Content-Type: application/json' \
+  -d '{"url": "https://news.ycombinator.com"}'
+
+# Batch (до 50 URL параллельно)
+curl -X POST http://localhost:3000/batch \
+  -H 'Content-Type: application/json' \
+  -d '{"urls": ["https://a.com", "https://b.com"]}'
+```
+
+### DeepSeek в LLM-цепочке
+
+LLM-провайдеры выстроены в порядке стоимости: сначала бесплатный локальный Ollama, затем облако:
+
+```
+Ollama (локально, бесплатно) → DeepSeek → OpenAI → Anthropic
+```
+
+DeepSeek — самый дешёвый из облачных провайдеров (~3× дешевле GPT-4o). Для активации достаточно:
+
+```bash
+export DEEPSEEK_API_KEY=sk-...
+```
+
+### JSONL-вывод для пайплайнов
+
+```bash
+# Один JSON-объект на строку — удобно для jq, Loki, Elasticsearch
+eclipse-claw --urls-file urls.txt --jsonl | jq '.metadata.title'
+
+# Потоковая обработка больших батчей
+eclipse-claw --urls-file 10000_urls.txt --jsonl --concurrency 20 > results.jsonl
+```
+
+---
+
 ## Архитектура
 
 ```
@@ -295,8 +350,9 @@ eclipse-claw/
   crates/
     eclipse-claw-core     Движок извлечения. Без I/O. WASM-совместим.
     eclipse-claw-fetch    HTTP-клиент + TLS-отпечатки (wreq/BoringSSL). Краулер. Batch.
-    eclipse-claw-llm      Цепочка LLM-провайдеров (Ollama -> OpenAI -> Anthropic)
+    eclipse-claw-llm      Цепочка LLM-провайдеров (Ollama -> DeepSeek -> OpenAI -> Anthropic)
     eclipse-claw-pdf      Извлечение текста из PDF
+    eclipse-claw-server   REST API сервер (Axum) — /extract, /summarise, /batch
     eclipse-claw-mcp      MCP-сервер (10 инструментов для AI-агентов)
     eclipse-claw-cli      CLI-утилита
 ```
@@ -311,10 +367,13 @@ eclipse-claw/
 |-----------|---------|
 | `ECLIPSE_CLAW_API_KEY` | API-ключ облака (обход ботов, JS-рендеринг, поиск, исследования) |
 | `OLLAMA_HOST` | URL Ollama для локальных LLM-функций (по умолчанию: `http://localhost:11434`) |
+| `DEEPSEEK_API_KEY` | API-ключ DeepSeek — первый облачный провайдер в цепочке (дешевле GPT-4o) |
 | `OPENAI_API_KEY` | API-ключ OpenAI для LLM-функций |
 | `ANTHROPIC_API_KEY` | API-ключ Anthropic для LLM-функций |
 | `ECLIPSE_CLAW_PROXY` | URL одного прокси |
 | `ECLIPSE_CLAW_PROXY_FILE` | Путь к файлу с пулом прокси |
+| `ECLIPSE_SERVER_ADDR` | Адрес REST API сервера (по умолчанию: `0.0.0.0:3000`) |
+| `ECLIPSE_MAX_CONCURRENCY` | Макс. параллельных fetch-соединений в сервере (по умолчанию: `32`) |
 
 ---
 

@@ -1,0 +1,27 @@
+[package]
+name = "eclipse-claw-server"
+description = "REST API server for eclipse-claw — exposes extraction and LLM summarisation over HTTP"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "eclipse-claw-server"
+path = "src/main.rs"
+
+[dependencies]
+eclipse-claw-core = { workspace = true }
+eclipse-claw-fetch = { workspace = true }
+eclipse-claw-llm = { workspace = true }
+
+axum = { version = "0.8", features = ["macros"] }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tower = { version = "0.5", features = ["limit"] }
+tower-http = { version = "0.6", features = ["cors", "trace", "limit"] }
+clap = { workspace = true }
+dotenvy = { workspace = true }
