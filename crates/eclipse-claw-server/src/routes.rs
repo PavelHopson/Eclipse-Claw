@@ -20,6 +20,7 @@ pub fn build(state: AppState, body_limit: usize) -> Router {
         .route("/extract/html", post(handlers::extract_html))
         .route("/summarise", post(handlers::summarise_url))
         .route("/batch", post(handlers::batch_extract))
+        .route("/design-tokens", post(handlers::design_tokens))
         .with_state(state)
         .layer(RequestBodyLimitLayer::new(body_limit))
         .layer(TraceLayer::new_for_http())

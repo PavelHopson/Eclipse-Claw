@@ -10,6 +10,7 @@ repository = "https://github.com/PavelHopson/eclipse-claw"
 
 [workspace.dependencies]
 eclipse-claw-core = { path = "crates/eclipse-claw-core" }
+eclipse-claw-cdp = { path = "crates/eclipse-claw-cdp" }
 eclipse-claw-fetch = { path = "crates/eclipse-claw-fetch" }
 eclipse-claw-llm = { path = "crates/eclipse-claw-llm" }
 eclipse-claw-pdf = { path = "crates/eclipse-claw-pdf" }

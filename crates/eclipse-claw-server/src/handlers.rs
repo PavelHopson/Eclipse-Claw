@@ -1,4 +1,5 @@
 use axum::{Json, extract::State};
+use eclipse_claw_cdp::{CdpClient, CdpConfig};
 use eclipse_claw_core::ExtractionOptions;
 use eclipse_claw_llm::provider::{CompletionRequest, LlmProvider, Message};
 use serde::{Deserialize, Serialize};
@@ -252,6 +253,46 @@ pub async fn batch_extract(
             "results": items,
         }
     })))
+}
+
+/// `POST /design-tokens` — extract design tokens via Chrome DevTools Protocol.
+///
+/// Requires Chrome with `--remote-debugging-port=9222` running on the server,
+/// or set `ECLIPSE_CHROME_WS` env var. Each request launches/reuses a Chrome tab.
+pub async fn design_tokens(
+    State(state): State<AppState>,
+    Json(req): Json<DesignTokensRequest>,
+) -> Result<Json<Value>, ApiError> {
+    if req.url.is_empty() {
+        return Err(ApiError::BadRequest("url is required".into()));
+    }
+
+    let config = CdpConfig {
+        chrome_ws: state.chrome_ws.clone().or(req.chrome_ws),
+        hydration_wait_ms: req.hydration_wait_ms.unwrap_or(1500),
+        viewport_width: req.viewport_width.unwrap_or(1440),
+        ..CdpConfig::default()
+    };
+
+    let client = CdpClient::new(config);
+    let tokens = client
+        .extract_design_tokens(&req.url)
+        .await
+        .map_err(|e| ApiError::Internal(e.to_string()))?;
+
+    Ok(Json(json!({ "ok": true, "data": tokens })))
+}
+
+/// `POST /design-tokens` request body.
+#[derive(Debug, Deserialize)]
+pub struct DesignTokensRequest {
+    pub url: String,
+    /// Override Chrome DevTools WebSocket URL (optional).
+    pub chrome_ws: Option<String>,
+    /// Ms to wait after navigation for JS hydration (default: 1500).
+    pub hydration_wait_ms: Option<u64>,
+    /// Viewport width for extraction (default: 1440).
+    pub viewport_width: Option<u32>,
 }
 
 /// `GET /health` — liveness probe.

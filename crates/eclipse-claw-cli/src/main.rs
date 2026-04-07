@@ -19,6 +19,7 @@ use eclipse_claw_fetch::{
     BatchExtractResult, BrowserProfile, CrawlConfig, CrawlResult, Crawler, FetchClient,
     FetchConfig, FetchResult, PageResult, SitemapEntry,
 };
+use eclipse_claw_cdp::{CdpClient, CdpConfig};
 use eclipse_claw_llm::LlmProvider;
 use eclipse_claw_pdf::PdfMode;
 
@@ -183,6 +184,19 @@ struct Cli {
     /// Extract brand identity (colors, fonts, logo)
     #[arg(long)]
     brand: bool,
+
+    /// Extract full design tokens via Chrome DevTools Protocol (getComputedStyle).
+    /// Requires Chrome with --remote-debugging-port=9222, or auto-launches headless Chrome.
+    /// Outputs: color palette, typography scale, spacing, shadows, CSS variables.
+    /// Use ECLIPSE_CLAW_CHROME_WS to point at an existing Chrome DevTools WebSocket.
+    #[arg(long)]
+    design_tokens: bool,
+
+    /// Chrome DevTools WebSocket URL for --design-tokens mode.
+    /// Example: ws://127.0.0.1:9222
+    /// Defaults to auto-launch headless Chrome.
+    #[arg(long, env = "ECLIPSE_CLAW_CHROME_WS")]
+    chrome_ws: Option<String>,
 
     // -- PDF options --
     /// PDF extraction mode: auto (error on empty) or fast (return whatever text is found)
@@ -2302,6 +2316,15 @@ async fn main() {
         return;
     }
 
+    // --design-tokens: full design token extraction via Chrome DevTools Protocol
+    if cli.design_tokens {
+        if let Err(e) = run_design_tokens(&cli).await {
+            eprintln!("error: {e}");
+            process::exit(1);
+        }
+        return;
+    }
+
     // --research: deep research via cloud API
     if let Some(ref query) = cli.research {
         if let Err(e) = run_research(&cli, query).await {
@@ -2384,6 +2407,35 @@ async fn main() {
             process::exit(1);
         }
     }
+}
+
+/// Extract design tokens from a URL via Chrome DevTools Protocol.
+///
+/// Requires Chrome with `--remote-debugging-port=9222` or auto-launches headless Chrome.
+/// Outputs a JSON document with color palette, typography, spacing, shadows, and CSS variables.
+async fn run_design_tokens(cli: &Cli) -> Result<(), String> {
+    let url = cli
+        .urls
+        .first()
+        .ok_or_else(|| "design-tokens requires a URL argument".to_string())?;
+
+    let config = CdpConfig {
+        chrome_ws: cli.chrome_ws.clone(),
+        timeout_secs: cli.timeout,
+        ..CdpConfig::default()
+    };
+
+    eprintln!("extracting design tokens from {url}...");
+
+    let client = CdpClient::new(config);
+    let tokens = client
+        .extract_design_tokens(url)
+        .await
+        .map_err(|e| format!("design token extraction failed: {e}"))?;
+
+    let json = serde_json::to_string_pretty(&tokens).expect("serialization failed");
+    println!("{json}");
+    Ok(())
 }
 
 #[cfg(test)]

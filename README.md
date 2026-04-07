@@ -92,6 +92,7 @@ docker compose up -d
 | **TLS-отпечатки** | Да | Нет | Нет | Нет |
 | **Self-hosted** | Да | Нет | Да | Да |
 | **REST API сервер** | **Да** | Да | Нет | Нет |
+| **Design token extraction (CDP)** | **Да** | Нет | Нет | Нет |
 | **MCP-сервер** | Да | Нет | Нет | Нет |
 | **DeepSeek поддержка** | **Да** | Нет | Нет | Нет |
 | **JSONL-вывод** | **Да** | Нет | Нет | Нет |
@@ -315,6 +316,34 @@ curl -X POST http://localhost:3000/summarise \
 curl -X POST http://localhost:3000/batch \
   -H 'Content-Type: application/json' \
   -d '{"urls": ["https://a.com", "https://b.com"]}'
+```
+
+### Extraction design tokens через Chrome DevTools Protocol
+
+```bash
+# Запустить Chrome с DevTools
+google-chrome --remote-debugging-port=9222
+
+# Извлечь точные design tokens через getComputedStyle()
+eclipse-claw https://linear.app --design-tokens
+# → JSON: цвета, типографика, отступы, тени, CSS-переменные
+
+# Через REST API сервер
+curl -X POST http://localhost:3000/design-tokens \
+  -H 'Content-Type: application/json' \
+  -d '{"url": "https://vercel.com"}'
+```
+
+Вывод:
+```json
+{
+  "colors": { "backgrounds": [...], "foregrounds": [...], "accents": [...] },
+  "typography": { "families": ["Inter", "JetBrains Mono"], "sizes": ["12px","14px",...] },
+  "spacing": { "gaps": ["8px","16px","24px"], "max_widths": ["1200px"] },
+  "css_variables": [{ "name": "--color-primary", "value": "#6366f1" }],
+  "color_scheme": "dark",
+  "scroll_library": "lenis"
+}
 ```
 
 ### DeepSeek в LLM-цепочке

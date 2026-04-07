@@ -11,6 +11,7 @@ path = "src/main.rs"
 
 [dependencies]
 eclipse-claw-core = { workspace = true }
+eclipse-claw-cdp = { workspace = true }
 eclipse-claw-fetch = { workspace = true }
 eclipse-claw-llm = { workspace = true }
 eclipse-claw-pdf = { workspace = true }

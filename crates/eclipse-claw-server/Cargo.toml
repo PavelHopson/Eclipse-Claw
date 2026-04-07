@@ -10,6 +10,7 @@ name = "eclipse-claw-server"
 path = "src/main.rs"
 
 [dependencies]
+eclipse-claw-cdp = { workspace = true }
 eclipse-claw-core = { workspace = true }
 eclipse-claw-fetch = { workspace = true }
 eclipse-claw-llm = { workspace = true }
