@@ -449,6 +449,38 @@ go get github.com/PavelHopson/eclipse-claw-go   # Go
 
 ---
 
+## Roadmap
+
+### Crawl Mode (вдохновлено [Scrapy](https://github.com/scrapy/scrapy))
+
+Сейчас Eclipse Claw извлекает контент из **одного URL**. Планируется полноценный crawl mode:
+
+- [ ] `--crawl` флаг — обход всех ссылок на сайте от стартового URL
+- [ ] `--depth N` — ограничение глубины обхода (по умолчанию: 3)
+- [ ] `--same-domain` — только ссылки в пределах домена
+- [ ] `robots.txt` уважение — автоматическая проверка и соблюдение правил
+- [ ] Rate limiting / politeness — настраиваемые задержки между запросами (`--delay 500ms`)
+- [ ] Sitemap.xml парсинг — обнаружение страниц через карту сайта
+- [ ] Дедупликация URL — canonical URL нормализация
+- [ ] Crawl state persistence — продолжение прерванного обхода
+
+```bash
+# Планируемый синтаксис
+eclipse-claw --crawl --depth 3 --same-domain https://docs.example.com --jsonl > docs.jsonl
+
+# С rate limiting
+eclipse-claw --crawl --delay 500ms --respect-robots https://blog.example.com
+```
+
+### Другие планы
+
+- [ ] CSS selector фильтрация (`--select "article.main"`)
+- [ ] Sitemap-first crawl mode
+- [ ] Webhook уведомления при обнаружении изменений
+- [ ] Playwright/Chrome fallback для SPA (без облака)
+
+---
+
 ## Участие в разработке
 
 Приветствуются контрибуции! Смотрите [CONTRIBUTING.md](CONTRIBUTING.md) для руководства.
