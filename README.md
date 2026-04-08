@@ -472,6 +472,26 @@ eclipse-claw --crawl --depth 3 --same-domain https://docs.example.com --jsonl > 
 eclipse-claw --crawl --delay 500ms --respect-robots https://blog.example.com
 ```
 
+### Telegram Parsing (вдохновлено [TGSpyder](https://github.com/Darksight-Analytics/tgspyder))
+
+Новый crate `eclipse-claw-telegram` для извлечения данных из Telegram:
+
+- [ ] Подключение через Telegram API (TDLib или grammers — Rust-native Telegram client)
+- [ ] Парсинг участников чатов/каналов — ID, username, имя, статус
+- [ ] Выгрузка истории сообщений — текст, дата, автор, reply chains
+- [ ] Извлечение медиа-метаданных (фото, видео, документы) без скачивания
+- [ ] Поиск пользователей по ID и username
+- [ ] Парсинг инвайт-ссылок и пересылок
+- [ ] Экспорт в JSONL / CSV (единый формат с основным парсером)
+- [ ] MCP-инструмент `telegram_extract` для AI-агентов
+
+```bash
+# Планируемый синтаксис
+eclipse-claw --telegram --chat @channel_name --messages --jsonl > messages.jsonl
+eclipse-claw --telegram --chat @group_name --members --csv > members.csv
+eclipse-claw --telegram --user 123456789 --info
+```
+
 ### Другие планы
 
 - [ ] CSS selector фильтрация (`--select "article.main"`)
