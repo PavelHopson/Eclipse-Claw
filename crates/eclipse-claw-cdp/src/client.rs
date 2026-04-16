@@ -60,10 +60,20 @@ impl CdpClient {
 
     /// Connect to Chrome via WebSocket URL (existing instance).
     /// Call this to get a connected Browser for manual control.
-    pub async fn connect(ws_url: &str) -> Result<(Browser, impl futures::Stream<Item = chromiumoxide::cdp::browser_protocol::target::EventTargetCreated>), CdpError> {
-        Browser::connect(ws_url)
+    pub async fn connect(ws_url: &str) -> Result<Browser, CdpError> {
+        let (browser, mut handler) = Browser::connect(ws_url)
             .await
-            .map_err(|e| CdpError::Launch(e.to_string()))
+            .map_err(|e| CdpError::Launch(e.to_string()))?;
+
+        // Spawn the CDP event handler in the background so it processes
+        // incoming DevTools messages without blocking the caller.
+        tokio::spawn(async move {
+            while let Some(event) = handler.next().await {
+                let _ = event;
+            }
+        });
+
+        Ok(browser)
     }
 
     /// Extract design tokens from a URL.
