@@ -299,3 +299,138 @@ pub struct DesignTokensRequest {
 pub async fn health() -> Json<Value> {
     Json(json!({ "ok": true, "service": "eclipse-claw-server" }))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode};
+    use axum::response::IntoResponse;
+    use axum::routing::{get, post};
+    use axum::Router;
+    use http_body_util::BodyExt;
+    use tower::ServiceExt;
+
+    fn test_router() -> Router {
+        Router::new()
+            .route("/health", get(health))
+            .route("/extract/html", post(extract_html))
+    }
+
+    async fn body_json(body: Body) -> Value {
+        let bytes = body.collect().await.unwrap().to_bytes();
+        serde_json::from_slice(&bytes).unwrap()
+    }
+
+    // ── /health ────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn health_returns_ok() {
+        let app = test_router();
+        let req = Request::get("/health").body(Body::empty()).unwrap();
+        let res = app.oneshot(req).await.unwrap();
+
+        assert_eq!(res.status(), StatusCode::OK);
+        let json = body_json(res.into_body()).await;
+        assert_eq!(json["ok"], true);
+        assert_eq!(json["service"], "eclipse-claw-server");
+    }
+
+    // ── /extract/html ──────────────────────────────────────────
+
+    #[tokio::test]
+    async fn extract_html_returns_markdown_for_simple_html() {
+        let app = test_router();
+        let payload = json!({
+            "html": "<html><body><article><h1>Hello World</h1><p>Test paragraph.</p></article></body></html>"
+        });
+        let req = Request::post("/extract/html")
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_string(&payload).unwrap()))
+            .unwrap();
+
+        let res = app.oneshot(req).await.unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+
+        let json = body_json(res.into_body()).await;
+        assert_eq!(json["ok"], true);
+        assert!(json["data"].is_object());
+    }
+
+    #[tokio::test]
+    async fn extract_html_rejects_empty_html() {
+        let app = test_router();
+        let payload = json!({ "html": "" });
+        let req = Request::post("/extract/html")
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_string(&payload).unwrap()))
+            .unwrap();
+
+        let res = app.oneshot(req).await.unwrap();
+        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+
+        let json = body_json(res.into_body()).await;
+        assert_eq!(json["ok"], false);
+        assert_eq!(json["error"]["code"], "bad_request");
+    }
+
+    #[tokio::test]
+    async fn extract_html_handles_selectors() {
+        let app = test_router();
+        let payload = json!({
+            "html": "<html><body><nav>Skip</nav><main><h1>Keep</h1></main></body></html>",
+            "only_main_content": true,
+            "exclude_selectors": ["nav"]
+        });
+        let req = Request::post("/extract/html")
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_string(&payload).unwrap()))
+            .unwrap();
+
+        let res = app.oneshot(req).await.unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+
+        let json = body_json(res.into_body()).await;
+        assert_eq!(json["ok"], true);
+    }
+
+    // ── ApiError response mapping ──────────────────────────────
+
+    #[tokio::test]
+    async fn bad_request_error_returns_400() {
+        let err = ApiError::BadRequest("missing field".into());
+        let response = err.into_response();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn fetch_error_returns_502() {
+        let err = ApiError::Fetch("timeout".into());
+        let response = err.into_response();
+        assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+    }
+
+    #[tokio::test]
+    async fn extraction_error_returns_422() {
+        let err = ApiError::Extraction("parse failure".into());
+        let response = err.into_response();
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    }
+
+    #[tokio::test]
+    async fn internal_error_returns_500() {
+        let err = ApiError::Internal("panic".into());
+        let response = err.into_response();
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    #[tokio::test]
+    async fn error_body_contains_ok_false_and_error_code() {
+        let err = ApiError::BadRequest("test".into());
+        let response = err.into_response();
+        let json = body_json(response.into_body()).await;
+        assert_eq!(json["ok"], false);
+        assert_eq!(json["error"]["code"], "bad_request");
+        assert!(json["error"]["message"].as_str().unwrap().contains("test"));
+    }
+}

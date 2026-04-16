@@ -1183,6 +1183,8 @@ dependencies = [
  "eclipse-claw-core",
  "eclipse-claw-fetch",
  "eclipse-claw-llm",
+ "http-body-util",
+ "hyper",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
