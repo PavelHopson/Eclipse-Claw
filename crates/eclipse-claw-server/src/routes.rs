@@ -3,9 +3,11 @@ use axum::{
     extract::{Request, State},
     http::{StatusCode, header},
     middleware::{self, Next},
-    response::Response,
+    response::{IntoResponse, Response},
     routing::{get, post},
 };
+use eclipse_claw_audit::AuditEvent;
+use std::time::Instant;
 use tower::limit::ConcurrencyLimitLayer;
 use tower_http::{limit::RequestBodyLimitLayer, trace::TraceLayer};
 
@@ -24,12 +26,12 @@ pub fn build(
     let protected = Router::new()
         .route("/connectors", get(handlers::connectors))
         .route("/connectors/doctor", get(handlers::connector_doctor))
+        .route("/audit/events", get(handlers::recent_audit))
         .route("/extract", post(handlers::extract_url))
         .route("/extract/html", post(handlers::extract_html))
         .route("/summarise", post(handlers::summarise_url))
         .route("/batch", post(handlers::batch_extract))
         .route("/design-tokens", post(handlers::design_tokens))
-        .with_state(state)
         .layer(middleware::from_fn_with_state(
             AuthToken(server_token),
             authenticate,
@@ -38,9 +40,65 @@ pub fn build(
     Router::new()
         .route("/health", get(handlers::health))
         .merge(protected)
+        .with_state(state.clone())
+        .layer(middleware::from_fn_with_state(state, audit_request))
         .layer(RequestBodyLimitLayer::new(body_limit))
         .layer(ConcurrencyLimitLayer::new(max_concurrency.max(1)))
         .layer(TraceLayer::new_for_http())
+}
+
+async fn audit_request(State(state): State<AppState>, request: Request, next: Next) -> Response {
+    let operation = operation_name(request.uri().path());
+    let started = Instant::now();
+    let response = next.run(request).await;
+    let status = response.status().as_u16();
+    let outcome = if status < 400 {
+        "success"
+    } else {
+        "denied_or_error"
+    };
+
+    if let Some(store) = &state.audit {
+        let event = AuditEvent::new(
+            "eclipse-claw-server",
+            operation,
+            outcome,
+            status,
+            started.elapsed().as_millis().try_into().unwrap_or(u64::MAX),
+        );
+        if let Err(error) = store.record(&event) {
+            tracing::error!(error = %error, "durable audit write failed");
+            if state.audit_required {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    axum::Json(serde_json::json!({
+                        "ok": false,
+                        "error": {
+                            "code": "audit_write_failed",
+                            "message": "required durable audit write failed"
+                        }
+                    })),
+                )
+                    .into_response();
+            }
+        }
+    }
+    response
+}
+
+fn operation_name(path: &str) -> &'static str {
+    match path {
+        "/health" => "health",
+        "/connectors" => "connectors",
+        "/connectors/doctor" => "doctor",
+        "/audit/events" => "audit_read",
+        "/extract" => "extract",
+        "/extract/html" => "extract_html",
+        "/summarise" => "summarise",
+        "/batch" => "batch",
+        "/design-tokens" => "design_tokens",
+        _ => "unknown_route",
+    }
 }
 
 async fn authenticate(

@@ -1,0 +1,31 @@
+[package]
+name = "eclipse-claw-worker"
+description = "Authenticated isolated worker for Eclipse Claw browser and LLM operations"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "eclipse-claw-worker"
+path = "src/main.rs"
+
+[dependencies]
+eclipse-claw-audit = { workspace = true }
+eclipse-claw-cdp = { workspace = true }
+eclipse-claw-llm = { workspace = true }
+
+axum = { version = "0.8", features = ["macros"] }
+clap = { workspace = true }
+dotenvy = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tower = { version = "0.5", features = ["limit"] }
+tower-http = { version = "0.6", features = ["limit", "trace"] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[dev-dependencies]
+http-body-util = "0.1"
+tower = { version = "0.5", features = ["util"] }
+

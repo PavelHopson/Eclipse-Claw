@@ -3,8 +3,8 @@
 </p>
 
 <h3 align="center">
-  Самый быстрый веб-скрапер для AI-агентов<br/>
-  <sub>На 67% меньше токенов. Извлечение за миллисекунды. Без headless-браузера.</sub>
+  Локальный web extraction toolkit для AI-агентов<br/>
+  <sub>CLI, MCP и REST. Public-only egress, изолированные workers и проверяемые fixtures.</sub>
 </h3>
 
 <p align="center">
@@ -20,7 +20,7 @@
 
 Ваш AI-агент вызывает `fetch()` и получает **403 Forbidden**. Или 142 КБ сырого HTML, который сжигает токены. **Eclipse Claw решает обе проблемы.**
 
-Извлекает чистый структурированный контент из любого URL с помощью TLS-отпечатков уровня Chrome — без headless-браузера, без Selenium, без Puppeteer. Вывод оптимизирован для LLM: **на 67% меньше токенов**, с сохранением метаданных, ссылок и изображений.
+Извлекает структурированный контент из публичных HTTP(S)-страниц с помощью TLS-отпечатков уровня Chrome — обычно без headless-браузера, Selenium или Puppeteer. Вывод для LLM убирает навигационный шум и сохраняет полезные метаданные, ссылки и изображения. Точный результат зависит от конкретной страницы и проверяется воспроизводимыми fixtures.
 
 ```
               Сырой HTML                          Eclipse Claw
@@ -32,8 +32,8 @@
 │ <div class="social-share">       │    │ кросс-доменных рассуждений.      │
 │ <footer class="site-footer">     │    │                                  │
 │ <!-- 142 847 символов -->        │    │ ## Ключевые выводы               │
-│                                  │    │ - Инференс в 3 раза быстрее     │
-│         4 820 токенов            │    │         1 590 токенов            │
+│                                  │    │ - Структура для LLM/RAG         │
+│         Сырой документ           │    │         Очищенный вывод          │
 └──────────────────────────────────┘    └──────────────────────────────────┘
 ```
 
@@ -77,6 +77,7 @@ docker run --rm ghcr.io/pavelhopson/eclipse-claw https://example.com
 
 ```bash
 cp env.example .env
+# Замените три token placeholder и задайте проверенный OLLAMA_IMAGE@sha256.
 docker compose up -d
 ```
 
@@ -86,9 +87,9 @@ docker compose up -d
 
 | | Eclipse Claw | Firecrawl | Trafilatura | [Apify Skills](https://github.com/apify/agent-skills) |
 |---|:---:|:---:|:---:|:---:|
-| **Точность извлечения** | **95.1%** | — | 80.6% | Зависит от платформы |
-| **Экономия токенов** | **-67%** | — | -55% | Структурированный JSON |
-| **Скорость (100 КБ)** | **3.2 мс** | ~500 мс | 18.4 мс | Облачная обработка |
+| **Воспроизводимый fixture gate** | **Да** | См. проект | См. проект | См. платформу |
+| **LLM-ориентированный вывод** | **Да** | Да | Текст | Структурированный JSON |
+| **Локальное выполнение** | **Да** | Опционально | Да | Нет |
 | **TLS-отпечатки** | Да | Нет | Нет | Не нужно (API) |
 | **Self-hosted** | **Да** | Нет | Да | Нет (облако) |
 | **REST API сервер** | **Да** | Да | Нет | Да (Apify API) |
@@ -250,52 +251,22 @@ eclipse-claw URLs --proxy-file proxies.txt            # Пул с ротацие
 
 ---
 
-## Бенчмарки
+## Проверяемый benchmark gate
 
-Все результаты получены на реальных тестах с 50 разнообразных страниц. Методология и инструкции по воспроизведению — в [benchmarks/](benchmarks/).
+В репозитории закреплены четыре небольших public-page fixtures: article, documentation,
+product и SPA/data-island. Для каждого файла сохранены источник, дата фиксации и SHA-256.
+CI проверяет целостность fixtures, ожидаемые extraction signals и устойчивость LLM boundary
+к инструкциям, встроенным в HTML.
 
-### Качество извлечения
-
-```
-Точность      Eclipse Claw ███████████████████ 95.1%
-              Readability  ████████████████▋   83.5%
-              Trafilatura  ████████████████    80.6%
-              Newspaper3k  █████████████▎      66.4%
-
-Фильтрация    Eclipse Claw ███████████████████ 96.1%
-шума          Readability  █████████████████▊  89.4%
-              Trafilatura  ██████████████████▏ 91.2%
-              Newspaper3k  ███████████████▎    76.8%
+```bash
+node scripts/verify-benchmark-fixtures.mjs
+cargo test -p eclipse-claw-core --test fixed_public_benchmark
+cargo test -p eclipse-claw-llm --test fixed_security_benchmark
 ```
 
-### Скорость (чистое извлечение, без сети)
-
-```
-10 КБ         Eclipse Claw ██                   0.8 мс
-              Readability  █████                2.1 мс
-              Trafilatura  ██████████           4.3 мс
-
-100 КБ        Eclipse Claw ██                   3.2 мс
-              Readability  █████                8.7 мс
-              Trafilatura  ██████████           18.4 мс
-```
-
-### Эффективность токенов (при подаче в Claude/GPT)
-
-| Формат | Токены | vs Сырой HTML |
-|--------|:------:|:-------------:|
-| Сырой HTML | 4 820 | базовый |
-| Readability | 2 340 | -51% |
-| Trafilatura | 2 180 | -55% |
-| **Eclipse Claw LLM** | **1 590** | **-67%** |
-
-### Скорость краулинга
-
-| Параллелизм | Eclipse Claw | Crawl4AI | Scrapy |
-|:-----------:|:-------:|:--------:|:------:|
-| 5 | **9.8 стр/с** | 5.2 стр/с | 7.1 стр/с |
-| 10 | **18.4 стр/с** | 8.7 стр/с | 12.3 стр/с |
-| 20 | **32.1 стр/с** | 14.2 стр/с | 21.8 стр/с |
+Это regression gate, а не заявление о лидерстве по скорости или точности. Старые сравнительные
+цифры не используются как release-критерий, пока для них нет публичного runner, fixtures и
+машиночитаемого отчёта. Подробности — в [benchmarks/](benchmarks/).
 
 ---
 
@@ -314,7 +285,7 @@ curl -X POST http://localhost:3000/extract \
   -H 'Content-Type: application/json' \
   -d '{"url": "https://example.com"}'
 
-# Суммаризация через LLM (Ollama/DeepSeek/OpenAI — автоцепочка)
+# Суммаризация через отдельный LLM worker
 curl -X POST http://localhost:3000/summarise \
   -H 'Content-Type: application/json' \
   -d '{"url": "https://news.ycombinator.com"}'
@@ -344,7 +315,25 @@ cloud metadata endpoints и redirects на них блокируются. CLI м
 локальному сервису только с явным `--allow-private-network`. Размер ответа ограничен 20 MiB,
 а server concurrency — `ECLIPSE_MAX_CONCURRENCY`.
 
-### Extraction design tokens через Chrome DevTools Protocol
+### Изолированные LLM и browser workers
+
+Production REST работает fail-closed: provider API keys и Chromium не находятся в процессе
+`eclipse-claw-server`. LLM-запросы уходят в аутентифицированный `llm-worker`, а CDP включается
+только через отдельный `cdp-worker`. Простой безопасный запуск описан в `docker-compose.yml`:
+
+```bash
+cp env.example .env
+# Замените три token placeholder и закрепите OLLAMA_IMAGE по sha256.
+docker compose up -d server llm-worker ollama
+# Browser worker запускается только при реальной необходимости:
+docker compose --profile browser up -d cdp-worker
+```
+
+Для ручного запуска server задайте `ECLIPSE_LLM_WORKER_URL` и отдельный
+`ECLIPSE_LLM_WORKER_TOKEN`. Если `ECLIPSE_REQUIRE_ISOLATED_WORKERS=1`, отсутствие корректного
+worker приводит к явной ошибке, а не к скрытому direct-provider fallback.
+
+#### Extraction design tokens через Chrome DevTools Protocol
 
 ```bash
 # Запустить Chrome с DevTools
@@ -354,8 +343,10 @@ google-chrome --remote-debugging-port=9222
 eclipse-claw https://linear.app --design-tokens
 # → JSON: цвета, типографика, отступы, тени, CSS-переменные
 
-# Через REST API сервер
-export ECLIPSE_ENABLE_CDP=1  # только в изолированном доверенном worker
+# Через REST API server + отдельный worker
+export ECLIPSE_ENABLE_CDP=1
+export ECLIPSE_CDP_WORKER_URL=http://127.0.0.1:3100
+export ECLIPSE_CDP_WORKER_TOKEN='different-random-secret-of-32-plus-chars'
 curl -X POST http://localhost:3000/design-tokens \
   -H 'Content-Type: application/json' \
   -d '{"url": "https://vercel.com"}'
@@ -381,7 +372,8 @@ LLM-провайдеры выстроены в порядке стоимости
 Ollama (локально, бесплатно) → DeepSeek → OpenAI → Anthropic
 ```
 
-DeepSeek — самый дешёвый из облачных провайдеров (~3× дешевле GPT-4o). Для активации достаточно:
+Стоимость и условия облачных провайдеров меняются; сверяйте текущие тарифы перед включением.
+Для активации DeepSeek задайте ключ только в изолированном LLM worker:
 
 ```bash
 export DEEPSEEK_API_KEY=sk-...
@@ -405,10 +397,12 @@ eclipse-claw --urls-file 10000_urls.txt --jsonl --concurrency 20 > results.jsonl
 eclipse-claw/
   crates/
     eclipse-claw-core     Движок извлечения. Без I/O. WASM-совместим.
+    eclipse-claw-audit    Privacy-preserving JSONL audit с rotation и retention.
     eclipse-claw-fetch    HTTP-клиент + TLS-отпечатки (wreq/BoringSSL). Краулер. Batch.
     eclipse-claw-llm      Цепочка LLM-провайдеров (Ollama -> DeepSeek -> OpenAI -> Anthropic)
     eclipse-claw-pdf      Извлечение текста из PDF
     eclipse-claw-server   REST API сервер (Axum) — /extract, /summarise, /batch
+    eclipse-claw-worker   Изолированный authenticated LLM/CDP worker.
     eclipse-claw-mcp      MCP-сервер (11 инструментов для AI-агентов + read-only doctor)
     eclipse-claw-cli      CLI-утилита
 ```
@@ -433,8 +427,14 @@ eclipse-claw/
 | `ECLIPSE_CLAW_ALLOW_SESSION_COOKIES` | Явное локальное разрешение MCP передавать cookies (`1`; по умолчанию запрещено) |
 | `ECLIPSE_SERVER_ADDR` | Адрес REST API сервера (по умолчанию: `127.0.0.1:3000`) |
 | `ECLIPSE_SERVER_TOKEN` | Bearer token (минимум 32 символа), обязательный для любого non-loopback bind |
-| `ECLIPSE_ENABLE_CDP` | Явно включает `/design-tokens`; использовать только в изолированном worker |
+| `ECLIPSE_REQUIRE_ISOLATED_WORKERS` | Запрещает direct LLM providers в server-процессе; production должен использовать `1` |
+| `ECLIPSE_LLM_WORKER_URL` / `ECLIPSE_LLM_WORKER_TOKEN` | URL и отдельный Bearer token изолированного LLM worker |
+| `ECLIPSE_ENABLE_CDP` | Явно включает `/design-tokens`; без worker endpoint server завершается с ошибкой |
+| `ECLIPSE_CDP_WORKER_URL` / `ECLIPSE_CDP_WORKER_TOKEN` | URL и отдельный Bearer token browser worker |
 | `ECLIPSE_MAX_CONCURRENCY` | Макс. параллельных fetch-соединений в сервере (по умолчанию: `32`) |
+| `ECLIPSE_AUDIT_DIR` | Каталог durable JSONL audit; обязателен при `ECLIPSE_AUDIT_REQUIRED=1` |
+| `ECLIPSE_AUDIT_RETENTION_DAYS` | Retention audit-файлов: 14 дней по умолчанию, максимум 90 |
+| `ECLIPSE_AUDIT_READ_ENABLED` | Отдельный opt-in для Bearer-protected audit read endpoint |
 
 ## Безопасная работа с AI-агентами
 
@@ -448,8 +448,10 @@ eclipse-claw/
   `proxies.txt` больше не подхватывается автоматически из текущей директории.
 - Crawler по умолчанию учитывает `robots.txt`, `Allow`/`Disallow` и `Crawl-delay`, сохраняет
   same-origin scope и ограничивает concurrency.
-- Security audit events пишутся через `tracing` только с `scheme://host[:port]`: URL query,
-  headers, cookies, API keys и содержимое страниц не логируются.
+- Durable audit хранит только фиксированные `service`, `operation`, `outcome`, status и timing.
+  URL, IP, query, headers, cookies, API keys, prompt и содержимое страниц в записи не попадают.
+- Audit write может быть обязательным: при `ECLIPSE_AUDIT_REQUIRED=1` ошибка записи останавливает
+  запуск или завершает запрос fail-closed. Read endpoint выключен отдельно по умолчанию.
 - REST CORS не разрешён по умолчанию. Для browser-клиента задайте конкретный origin на
   reverse proxy вместе с TLS, rate limit и своим auth/authorization слоем.
 
@@ -507,21 +509,18 @@ go get github.com/PavelHopson/eclipse-claw-go   # Go
 
 ## Roadmap
 
-### Crawl Mode (вдохновлено [Scrapy](https://github.com/scrapy/scrapy))
+### Crawl Mode
 
-Сейчас Eclipse Claw извлекает контент из **одного URL**. Планируется полноценный crawl mode:
+Основной безопасный crawl mode уже реализован:
 
-- [ ] `--crawl` флаг — обход всех ссылок на сайте от стартового URL
-- [ ] `--depth N` — ограничение глубины обхода (по умолчанию: 3)
-- [ ] `--same-domain` — только ссылки в пределах домена
-- [ ] `robots.txt` уважение — автоматическая проверка и соблюдение правил
-- [ ] Rate limiting / politeness — настраиваемые задержки между запросами (`--delay 500ms`)
-- [ ] Sitemap.xml парсинг — обнаружение страниц через карту сайта
-- [ ] Дедупликация URL — canonical URL нормализация
-- [ ] Crawl state persistence — продолжение прерванного обхода
+- [x] `--crawl`, `--depth`, `--max-pages` и same-origin обход
+- [x] `robots.txt` `Allow`/`Disallow` и `Crawl-delay` по умолчанию
+- [x] настраиваемые delay и concurrency
+- [x] sitemap seeding и дедупликация URL
+- [ ] persistence/resume для прерванного обхода
 
 ```bash
-# Планируемый синтаксис
+# Рабочий синтаксис
 eclipse-claw --crawl --depth 3 --same-domain https://docs.example.com --jsonl > docs.jsonl
 
 # С rate limiting
@@ -552,10 +551,10 @@ eclipse-claw --telegram --user 123456789 --info
 
 - [x] Allowlisted connector registry + read-only `doctor` для REST/MCP; automatic cloud fallback
       требует отдельного opt-in и никогда не включается только из-за сохранённого API key
-- [ ] CSS selector фильтрация (`--select "article.main"`)
-- [ ] Sitemap-first crawl mode
+- [x] CSS selector фильтрация (`--include "article.main"` / `--exclude "nav,footer"`)
+- [x] Sitemap-first crawl mode
 - [ ] Webhook уведомления при обнаружении изменений
-- [ ] Playwright/Chrome fallback для SPA (без облака)
+- [x] Опциональный CDP worker для SPA/design tokens, изолированный от REST process
 
 ---
 

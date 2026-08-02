@@ -1,16 +1,41 @@
-# Slim runtime image — uses pre-built binaries from the release.
-# The full Dockerfile (multi-stage Rust build) is for local development.
-# CI uses this to avoid 60+ min QEMU cross-compilation.
+# Slim release image using pre-built, attested binaries.
+# The multi-stage Dockerfile remains the local source-build path.
 ARG BINARY_DIR=binaries
+ARG RUNTIME_VARIANT=core
 
-FROM ubuntu:24.04
+FROM debian:bookworm-slim AS base
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
+    curl \
     && rm -rf /var/lib/apt/lists/*
+
+RUN groupadd --gid 65532 eclipse \
+    && useradd --uid 65532 --gid 65532 --create-home --home-dir /home/eclipse eclipse \
+    && mkdir -p /var/lib/eclipse-claw/audit/server \
+        /var/lib/eclipse-claw/audit/llm-worker \
+        /var/lib/eclipse-claw/audit/cdp-worker \
+    && chown -R 65532:65532 /var/lib/eclipse-claw /home/eclipse
 
 ARG BINARY_DIR
 COPY ${BINARY_DIR}/eclipse-claw /usr/local/bin/eclipse-claw
 COPY ${BINARY_DIR}/eclipse-claw-mcp /usr/local/bin/eclipse-claw-mcp
+COPY ${BINARY_DIR}/eclipse-claw-server /usr/local/bin/eclipse-claw-server
+COPY ${BINARY_DIR}/eclipse-claw-worker /usr/local/bin/eclipse-claw-worker
 
+WORKDIR /work
+USER 65532:65532
+
+FROM base AS core
 CMD ["eclipse-claw"]
+
+FROM base AS cdp
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    chromium \
+    fonts-liberation \
+    && rm -rf /var/lib/apt/lists/*
+USER 65532:65532
+CMD ["eclipse-claw-worker", "--mode", "cdp"]
+
+FROM ${RUNTIME_VARIANT} AS final

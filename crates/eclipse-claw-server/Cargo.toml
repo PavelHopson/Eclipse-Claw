@@ -10,7 +10,7 @@ name = "eclipse-claw-server"
 path = "src/main.rs"
 
 [dependencies]
-eclipse-claw-cdp = { workspace = true }
+eclipse-claw-audit = { workspace = true }
 eclipse-claw-connectors = { workspace = true }
 eclipse-claw-core = { workspace = true }
 eclipse-claw-fetch = { workspace = true }
@@ -27,6 +27,8 @@ tower = { version = "0.5", features = ["limit"] }
 tower-http = { version = "0.6", features = ["cors", "trace", "limit"] }
 clap = { workspace = true }
 dotenvy = { workspace = true }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+url = "2"
 
 [dev-dependencies]
 axum = { version = "0.8", features = ["macros"] }

@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "policy": "Fixtures are small, paraphrased, repository-owned snapshots. CI never downloads mutable public pages.",
+  "cases": [
+    {
+      "id": "article-untrusted-content",
+      "source_url": "https://example.com/research-safety",
+      "captured_at": "2026-08-02",
+      "fixture": "article.html",
+      "sha256": "a8d71d2083fb75667df8a535261f59b322cc2b7ae3194e843470c1437cbef3a1",
+      "expected_title": "Public research safety baseline",
+      "expected_contains": ["Confirm the canonical source", "hostile test data"],
+      "expected_excludes": ["Newsletter Advertising", "Account Pricing Sign in"]
+    },
+    {
+      "id": "documentation-code-and-link",
+      "source_url": "https://docs.example.com/widget",
+      "captured_at": "2026-08-02",
+      "fixture": "documentation.html",
+      "sha256": "791af06fb72ebec965ef8dc7bb78f23bcf13bc8cda50d6f4b267ff6b1b0188b3",
+      "expected_title": "Widget API guide",
+      "expected_contains": ["Widget API accepts", "safe-default", "error reference"],
+      "expected_excludes": ["Community Status Legal", "Version selector"]
+    },
+    {
+      "id": "product-structured-data",
+      "source_url": "https://shop.example.com/atlas-notebook",
+      "captured_at": "2026-08-02",
+      "fixture": "product.html",
+      "sha256": "898206864073282a5eb220a1260625485ae134ca5ff3493fe01f64d49bf3dbdf",
+      "expected_title": "Atlas field notebook",
+      "expected_contains": ["numbered pages", "Weather-resistant cover"],
+      "expected_excludes": ["Marketing preferences", "Catalog Sale Account"]
+    },
+    {
+      "id": "spa-data-island",
+      "source_url": "https://status.example.com/",
+      "captured_at": "2026-08-02",
+      "fixture": "spa.html",
+      "sha256": "df7d74cd0d9cadbf51c5366fadf7f6245926928a5471dbedd990d266c1b9483c",
+      "expected_title": "Orbit status",
+      "expected_contains": ["Orbit status"],
+      "expected_excludes": ["private credential"]
+    }
+  ]
+}

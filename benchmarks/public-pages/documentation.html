@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+<head><title>Widget API guide</title></head>
+<body>
+  <header>Documentation Search Version selector</header>
+  <aside>Overview Install Migration Changelog</aside>
+  <main>
+    <h1>Widget API guide</h1>
+    <p>The Widget API accepts a bounded request and returns a versioned result.</p>
+    <h2>Create a widget</h2>
+    <pre><code class="language-rust">let widget = Widget::new("safe-default");</code></pre>
+    <p>Callers should validate identifiers, handle timeouts, and retry only idempotent operations.</p>
+    <a href="/reference/errors">Read the error reference</a>
+  </main>
+  <footer>Community Status Legal</footer>
+</body>
+</html>

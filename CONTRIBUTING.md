@@ -93,11 +93,14 @@ Body is optional but encouraged for non-trivial changes.
 eclipse-claw (this repo)
 ├── crates/
 │   ├── eclipse-claw-core/    # Pure extraction engine (HTML → markdown/json/text)
+│   ├── eclipse-claw-audit/   # Durable content-free security audit
 │   ├── eclipse-claw-fetch/   # HTTP client + crawler + sitemap + batch
 │   ├── eclipse-claw-llm/     # LLM provider chain (Ollama → OpenAI → Anthropic)
 │   ├── eclipse-claw-pdf/     # PDF text extraction
 │   ├── eclipse-claw-cli/     # CLI binary
-│   └── eclipse-claw-mcp/     # MCP server binary
+│   ├── eclipse-claw-mcp/     # MCP server binary
+│   ├── eclipse-claw-server/  # Authenticated REST API
+│   └── eclipse-claw-worker/  # Isolated authenticated LLM/CDP worker
 │
 └── [patch.crates-io]    # Points to eclipse-claw-tls for TLS fingerprinting
 ```
@@ -116,3 +119,6 @@ Changes that cross crate boundaries need extra care:
 | eclipse-claw-pdf | No | Minimal, wraps pdf-extract |
 | eclipse-claw-cli | Yes | Depends on all above |
 | eclipse-claw-mcp | Yes | MCP server via rmcp |
+| eclipse-claw-server | Yes | Public-only REST; remote workers in production |
+| eclipse-claw-worker | Yes | Isolated LLM or browser capability |
+| eclipse-claw-audit | Filesystem only | Never stores URL, content, credentials, cookies or IP |

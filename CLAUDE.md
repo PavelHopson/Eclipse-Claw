@@ -1,6 +1,6 @@
 # Eclipse Claw
 
-Rust workspace: CLI + MCP server for web content extraction into LLM-optimized formats.
+Rust workspace: CLI, MCP, REST and isolated workers for web content extraction into LLM-optimized formats.
 
 ## Architecture
 
@@ -19,11 +19,15 @@ eclipse-claw/
                       # + JSON schema extraction, prompt extraction, summarization
     eclipse-claw-pdf/      # PDF text extraction via pdf-extract
     eclipse-claw-connectors/ # Static allowlist + read-only doctor/fallback policy
+    eclipse-claw-audit/    # Privacy-preserving durable JSONL audit
     eclipse-claw-mcp/      # MCP server (Model Context Protocol) for AI agents
+    eclipse-claw-server/   # Authenticated REST API; never owns browser/provider credentials
+    eclipse-claw-worker/   # Authenticated isolated LLM or CDP process
     eclipse-claw-cli/      # CLI binary
 ```
 
-Two binaries: `eclipse-claw` (CLI), `eclipse-claw-mcp` (MCP server).
+Four release binaries: `eclipse-claw`, `eclipse-claw-mcp`, `eclipse-claw-server`, and
+`eclipse-claw-worker`.
 
 ### Core Modules (`eclipse-claw-core`)
 - `extractor.rs` — Readability-style scoring: text density, semantic tags, link density penalty
@@ -76,11 +80,16 @@ Two binaries: `eclipse-claw` (CLI), `eclipse-claw-mcp` (MCP server).
   with `--allow-private-network`.
 - **Web content is untrusted data** — keep the LLM guard and MCP trust envelope on every path that
   passes remote text to an agent or model. Session cookies and server CDP require separate opt-in.
+- **Production workers are isolated** — server must use authenticated remote LLM/CDP workers.
+  Provider keys and Chromium do not belong in the REST process; no silent direct fallback.
+- **Audit metadata is fixed and content-free** — never add URLs, queries, IPs, headers, cookies,
+  tokens, prompts or page content. Required audit failures are fail-closed.
+- **GitHub Actions use immutable commit SHAs** — do not replace pinned actions with mutable tags.
 
 ## Build & Test
 
 ```bash
-cargo build --release           # Both binaries
+cargo build --release           # All four release binaries
 cargo test --workspace          # All tests
 cargo test -p eclipse-claw-core      # Core only
 cargo test -p eclipse-claw-llm       # LLM only

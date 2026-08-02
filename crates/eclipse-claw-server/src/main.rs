@@ -2,6 +2,7 @@ mod error;
 mod handlers;
 mod routes;
 mod state;
+mod worker;
 
 use std::net::SocketAddr;
 
@@ -53,7 +54,9 @@ async fn main() {
         "loopback-only"
     };
 
-    let state = state::AppState::new(args.max_concurrency).await;
+    let state = state::AppState::new(args.max_concurrency)
+        .await
+        .unwrap_or_else(|message| panic!("server initialization failed: {message}"));
     let app = routes::build(state, args.body_limit, args.max_concurrency, server_token);
 
     tracing::info!(

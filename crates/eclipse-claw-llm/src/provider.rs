@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::LlmError;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompletionRequest {
     pub model: String,
     pub messages: Vec<Message>,

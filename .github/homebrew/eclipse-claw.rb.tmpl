@@ -1,0 +1,35 @@
+class EclipseClaw < Formula
+  desc "Local-first web extraction tools for AI agents"
+  homepage "https://github.com/PavelHopson/eclipse-claw"
+  license "AGPL-3.0-only"
+  version "@@VERSION@@"
+
+  on_macos do
+    if Hardware::CPU.arm?
+      url "@@BASE@@/eclipse-claw-@@TAG@@-aarch64-apple-darwin.tar.gz"
+      sha256 "@@SHA_MAC_ARM@@"
+    else
+      url "@@BASE@@/eclipse-claw-@@TAG@@-x86_64-apple-darwin.tar.gz"
+      sha256 "@@SHA_MAC_X86@@"
+    end
+  end
+
+  on_linux do
+    if Hardware::CPU.arm?
+      url "@@BASE@@/eclipse-claw-@@TAG@@-aarch64-unknown-linux-gnu.tar.gz"
+      sha256 "@@SHA_LINUX_ARM@@"
+    else
+      url "@@BASE@@/eclipse-claw-@@TAG@@-x86_64-unknown-linux-gnu.tar.gz"
+      sha256 "@@SHA_LINUX_X86@@"
+    end
+  end
+
+  def install
+    bin.install "eclipse-claw"
+    bin.install "eclipse-claw-mcp"
+  end
+
+  test do
+    assert_match "eclipse-claw", shell_output("#{bin}/eclipse-claw --version")
+  end
+end

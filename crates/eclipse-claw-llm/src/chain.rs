@@ -8,7 +8,7 @@ use crate::error::LlmError;
 use crate::provider::{CompletionRequest, LlmProvider};
 use crate::providers::{
     anthropic::AnthropicProvider, deepseek::DeepSeekProvider, ollama::OllamaProvider,
-    openai::OpenAiProvider,
+    openai::OpenAiProvider, worker::WorkerProvider,
 };
 
 pub struct ProviderChain {
@@ -16,10 +16,46 @@ pub struct ProviderChain {
 }
 
 impl ProviderChain {
+    /// Build a chain that can only reach an authenticated remote worker.
+    /// Missing or invalid configuration produces an empty fail-closed chain.
+    pub fn isolated() -> Self {
+        match WorkerProvider::from_env() {
+            Ok(Some(worker)) => Self::from_providers(vec![Box::new(worker)]),
+            Ok(None) => {
+                warn!("isolated LLM worker is not configured");
+                Self::from_providers(Vec::new())
+            }
+            Err(error) => {
+                warn!(error = %error, "isolated LLM worker configuration rejected");
+                Self::from_providers(Vec::new())
+            }
+        }
+    }
+
     /// Build the default chain: Ollama -> OpenAI -> Anthropic.
     /// Ollama is always added (availability checked at call time).
     /// Cloud providers are only added if their API keys are configured.
     pub async fn default() -> Self {
+        let require_isolated = env_enabled("ECLIPSE_REQUIRE_ISOLATED_WORKERS");
+        match WorkerProvider::from_env() {
+            Ok(Some(worker)) => return Self::from_providers(vec![Box::new(worker)]),
+            Ok(None) if require_isolated => {
+                warn!("isolated workers are required but ECLIPSE_LLM_WORKER_URL is not configured");
+                return Self::from_providers(Vec::new());
+            }
+            Err(error) => {
+                warn!(error = %error, "isolated LLM worker configuration rejected");
+                return Self::from_providers(Vec::new());
+            }
+            Ok(None) => {}
+        }
+
+        Self::direct().await
+    }
+
+    /// Build the direct provider chain. This is intended for the isolated
+    /// worker and trusted local CLI mode, not for the production REST server.
+    pub async fn direct() -> Self {
         let mut providers: Vec<Box<dyn LlmProvider>> = Vec::new();
 
         let ollama = OllamaProvider::new(None, None);
@@ -68,6 +104,12 @@ impl ProviderChain {
     pub fn is_empty(&self) -> bool {
         self.providers.is_empty()
     }
+}
+
+fn env_enabled(name: &str) -> bool {
+    std::env::var(name)
+        .ok()
+        .is_some_and(|value| matches!(value.trim(), "1" | "true" | "yes" | "on"))
 }
 
 /// ProviderChain itself implements LlmProvider, so it can be used anywhere

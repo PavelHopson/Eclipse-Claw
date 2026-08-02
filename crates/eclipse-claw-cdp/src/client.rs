@@ -33,6 +33,10 @@ pub struct CdpConfig {
 
     /// Outbound page-navigation policy. Public internet only by default.
     pub network_policy: eclipse_claw_fetch::NetworkPolicy,
+
+    /// Disable Chromium's own process sandbox. This is never the default and
+    /// is only acceptable inside a separately hardened container boundary.
+    pub disable_browser_sandbox: bool,
 }
 
 impl Default for CdpConfig {
@@ -43,6 +47,7 @@ impl Default for CdpConfig {
             hydration_wait_ms: 1500,
             viewport_width: 1440,
             network_policy: eclipse_claw_fetch::NetworkPolicy::PublicOnly,
+            disable_browser_sandbox: false,
         }
     }
 }
@@ -99,9 +104,12 @@ impl CdpClient {
                 .await
                 .map_err(|e| CdpError::Launch(e.to_string()))?,
             None => {
-                let config = BrowserConfig::builder()
-                    .no_sandbox()
-                    .window_size(self.config.viewport_width, 900)
+                let mut builder = BrowserConfig::builder();
+                builder = builder.window_size(self.config.viewport_width, 900);
+                if self.config.disable_browser_sandbox {
+                    builder = builder.no_sandbox();
+                }
+                let config = builder
                     .build()
                     .map_err(|e| CdpError::Launch(e.to_string()))?;
 

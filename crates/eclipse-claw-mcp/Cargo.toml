@@ -10,6 +10,7 @@ name = "eclipse-claw-mcp"
 path = "src/main.rs"
 
 [dependencies]
+eclipse-claw-audit = { workspace = true }
 eclipse-claw-core = { workspace = true }
 eclipse-claw-connectors = { workspace = true }
 eclipse-claw-fetch = { workspace = true }

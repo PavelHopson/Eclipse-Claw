@@ -3,12 +3,13 @@ resolver = "2"
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.3.9"
+version = "0.4.0"
 edition = "2024"
 license = "AGPL-3.0"
 repository = "https://github.com/PavelHopson/eclipse-claw"
 
 [workspace.dependencies]
+eclipse-claw-audit = { path = "crates/eclipse-claw-audit" }
 eclipse-claw-core = { path = "crates/eclipse-claw-core" }
 eclipse-claw-cdp = { path = "crates/eclipse-claw-cdp" }
 eclipse-claw-connectors = { path = "crates/eclipse-claw-connectors" }
