@@ -14,6 +14,9 @@ pub enum ApiError {
     #[error("bad request: {0}")]
     BadRequest(String),
 
+    #[error("forbidden: {0}")]
+    Forbidden(String),
+
     #[error("internal error: {0}")]
     Internal(String),
 }
@@ -22,6 +25,7 @@ impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let (status, code) = match &self {
             ApiError::BadRequest(_) => (StatusCode::BAD_REQUEST, "bad_request"),
+            ApiError::Forbidden(_) => (StatusCode::FORBIDDEN, "forbidden"),
             ApiError::Fetch(_) => (StatusCode::BAD_GATEWAY, "fetch_error"),
             ApiError::Extraction(_) => (StatusCode::UNPROCESSABLE_ENTITY, "extraction_error"),
             ApiError::Internal(_) => (StatusCode::INTERNAL_SERVER_ERROR, "internal_error"),

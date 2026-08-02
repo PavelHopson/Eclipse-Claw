@@ -5,15 +5,39 @@ on:
     tags: ["v*"]
 
 permissions:
-  contents: write
-  packages: write
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
+  RUSTFLAGS: "--cfg reqwest_unstable"
 
 jobs:
+  validate:
+    name: Validate release tag and security fixtures
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - name: Match tag to workspace version
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          version="$(awk -F'"' '/^version = / { print $2; exit }' Cargo.toml)"
+          test "$tag" = "$version" || {
+            echo "Tag v${tag} does not match workspace version ${version}" >&2
+            exit 1
+          }
+      - name: Verify pinned benchmark fixtures
+        run: node scripts/verify-benchmark-fixtures.mjs
+      - name: Run fixed security benchmarks
+        run: |
+          cargo test -p eclipse-claw-core --test fixed_public_benchmark
+          cargo test -p eclipse-claw-llm --test fixed_security_benchmark
+
   build:
     name: Build ${{ matrix.target }}
+    needs: validate
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -29,214 +53,203 @@ jobs:
             os: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
         with:
           targets: ${{ matrix.target }}
-
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
-          key: ${{ matrix.target }}
+          key: release-${{ matrix.target }}
 
-      # Cross-compilation support for aarch64-linux
-      # boring-sys2 builds BoringSSL from C source via cmake — needs cross-compiler + cmake
-      - name: Install cross-compilation tools
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
+      - name: Install Linux build tools
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu cmake
-          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
-          echo "CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
-          echo "CXX_aarch64_unknown_linux_gnu=aarch64-linux-gnu-g++" >> $GITHUB_ENV
-          echo "CMAKE_SYSTEM_NAME=Linux" >> $GITHUB_ENV
-          echo "CMAKE_SYSTEM_PROCESSOR=aarch64" >> $GITHUB_ENV
+          sudo apt-get install -y cmake clang nasm
 
-      # BoringSSL build tools for native targets
-      - name: Install cmake
-        if: matrix.target != 'aarch64-unknown-linux-gnu' && runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y cmake
+      - name: Install aarch64 cross compiler
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> "$GITHUB_ENV"
+          echo "CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc" >> "$GITHUB_ENV"
+          echo "CXX_aarch64_unknown_linux_gnu=aarch64-linux-gnu-g++" >> "$GITHUB_ENV"
+          echo "CMAKE_SYSTEM_NAME=Linux" >> "$GITHUB_ENV"
+          echo "CMAKE_SYSTEM_PROCESSOR=aarch64" >> "$GITHUB_ENV"
 
-      - name: Build
+      - name: Build release binaries
         run: cargo build --release --target ${{ matrix.target }}
 
-      - name: Package
+      - name: Package required binaries
         shell: bash
         run: |
-          tag="${GITHUB_REF#refs/tags/}"
-          staging="eclipse-claw-${tag}-${{ matrix.target }}"
+          staging="eclipse-claw-${GITHUB_REF_NAME}-${{ matrix.target }}"
           mkdir "$staging"
-          cp target/${{ matrix.target }}/release/eclipse-claw "$staging/" 2>/dev/null || true
-          cp target/${{ matrix.target }}/release/eclipse-claw-mcp "$staging/" 2>/dev/null || true
+          for binary in eclipse-claw eclipse-claw-mcp eclipse-claw-server eclipse-claw-worker; do
+            test -x "target/${{ matrix.target }}/release/${binary}"
+            cp "target/${{ matrix.target }}/release/${binary}" "$staging/"
+          done
           cp README.md LICENSE "$staging/"
           tar czf "$staging.tar.gz" "$staging"
-          echo "ASSET=$staging.tar.gz" >> $GITHUB_ENV
+          echo "ASSET=$staging.tar.gz" >> "$GITHUB_ENV"
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - name: Upload release archive
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ${{ matrix.target }}
           path: ${{ env.ASSET }}
+          if-no-files-found: error
+          retention-days: 7
 
   release:
-    name: Release
+    name: GitHub release
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: artifacts
-
-      - name: Compute checksums
+      - name: Collect archives and compute checksums
+        shell: bash
         run: |
-          cd artifacts
-          find . -name '*.tar.gz' -exec mv {} . \;
-          sha256sum *.tar.gz > SHA256SUMS
-          cat SHA256SUMS
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+          find artifacts -mindepth 2 -name '*.tar.gz' -exec mv {} artifacts/ \;
+          test "$(find artifacts -maxdepth 1 -name '*.tar.gz' | wc -l)" -eq 4
+          (cd artifacts && sha256sum -- *.tar.gz > SHA256SUMS)
+          (cd artifacts && sha256sum --check SHA256SUMS)
+      - name: Attest release artifacts
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: |
+            artifacts/*.tar.gz
+            artifacts/SHA256SUMS
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           generate_release_notes: true
+          fail_on_unmatched_files: true
           files: |
             artifacts/*.tar.gz
             artifacts/SHA256SUMS
 
   docker:
-    name: Docker
-    needs: release
+    name: Publish container images
+    needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: docker/setup-qemu-action@v3
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          path: artifacts
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
         with:
           platforms: arm64
-
-      - uses: docker/setup-buildx-action@v3
-
-      - uses: docker/login-action@v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
-      # Download pre-built binaries for both architectures
-      - name: Download release binaries
+      - name: Prepare Linux binaries
+        shell: bash
         run: |
-          tag="${GITHUB_REF#refs/tags/}"
           for target in x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu; do
-            dir="eclipse-claw-${tag}-${target}"
-            curl -sSL "https://github.com/PavelHopson/eclipse-claw/releases/download/${tag}/${dir}.tar.gz" -o "${target}.tar.gz"
-            tar xzf "${target}.tar.gz"
-            mkdir -p "binaries-${target}"
-            cp "${dir}/eclipse-claw" "binaries-${target}/eclipse-claw"
-            cp "${dir}/eclipse-claw-mcp" "binaries-${target}/eclipse-claw-mcp"
-            chmod +x "binaries-${target}"/*
+            archive="$(find artifacts/$target -name '*.tar.gz' -print -quit)"
+            test -n "$archive"
+            tar xzf "$archive"
+            source_dir="eclipse-claw-${GITHUB_REF_NAME}-${target}"
+            output_dir="binaries-${target}"
+            mkdir "$output_dir"
+            for binary in eclipse-claw eclipse-claw-mcp eclipse-claw-server eclipse-claw-worker; do
+              test -x "$source_dir/$binary"
+              cp "$source_dir/$binary" "$output_dir/$binary"
+            done
           done
-          ls -laR binaries-*/
-
-      # Build per-arch images with plain docker build (no buildx manifest nesting)
-      - name: Build and push
+      - name: Build signed-by-provenance architecture images
+        shell: bash
         run: |
-          tag="${GITHUB_REF#refs/tags/}"
-
-          # amd64
-          docker build -f Dockerfile.ci --build-arg BINARY_DIR=binaries-x86_64-unknown-linux-gnu \
-            --platform linux/amd64 -t ghcr.io/pavelhopson/eclipse-claw:${tag}-amd64 --push .
-
-          # arm64
-          docker build -f Dockerfile.ci --build-arg BINARY_DIR=binaries-aarch64-unknown-linux-gnu \
-            --platform linux/arm64 -t ghcr.io/pavelhopson/eclipse-claw:${tag}-arm64 --push .
-
-          # Multi-arch manifest
-          docker manifest create ghcr.io/pavelhopson/eclipse-claw:${tag} \
-            ghcr.io/pavelhopson/eclipse-claw:${tag}-amd64 \
-            ghcr.io/pavelhopson/eclipse-claw:${tag}-arm64
-          docker manifest push ghcr.io/pavelhopson/eclipse-claw:${tag}
-
-          docker manifest create ghcr.io/pavelhopson/eclipse-claw:latest \
-            ghcr.io/pavelhopson/eclipse-claw:${tag}-amd64 \
-            ghcr.io/pavelhopson/eclipse-claw:${tag}-arm64
-          docker manifest push ghcr.io/pavelhopson/eclipse-claw:latest
+          for spec in "x86_64-unknown-linux-gnu linux/amd64 amd64" "aarch64-unknown-linux-gnu linux/arm64 arm64"; do
+            read -r target platform suffix <<< "$spec"
+            for variant in core cdp; do
+              image="ghcr.io/pavelhopson/eclipse-claw"
+              runtime_variant="core"
+              if [ "$variant" = "cdp" ]; then
+                image="ghcr.io/pavelhopson/eclipse-claw-cdp-worker"
+                runtime_variant="cdp"
+              fi
+              docker buildx build \
+                --file Dockerfile.ci \
+                --build-arg "BINARY_DIR=binaries-${target}" \
+                --build-arg "RUNTIME_VARIANT=${runtime_variant}" \
+                --platform "$platform" \
+                --provenance=mode=max \
+                --tag "${image}:${GITHUB_REF_NAME}-${suffix}" \
+                --push .
+            done
+          done
+      - name: Publish multi-architecture manifests
+        shell: bash
+        run: |
+          for image in ghcr.io/pavelhopson/eclipse-claw ghcr.io/pavelhopson/eclipse-claw-cdp-worker; do
+            docker buildx imagetools create \
+              --tag "${image}:${GITHUB_REF_NAME}" \
+              --tag "${image}:latest" \
+              "${image}:${GITHUB_REF_NAME}-amd64" \
+              "${image}:${GITHUB_REF_NAME}-arm64"
+          done
 
   homebrew:
     name: Update Homebrew
     needs: [release, docker]
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - name: Compute all checksums and update formula
+      - name: Require tap token
         env:
-          COMMITTER_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: test -n "$TAP_TOKEN"
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: PavelHopson/homebrew-eclipse-claw
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: tap
+      - name: Download release archives and update formula
+        shell: bash
         run: |
-          tag="${GITHUB_REF#refs/tags/}"
-          base="https://github.com/PavelHopson/eclipse-claw/releases/download/${tag}"
-
-          # Download all 4 tarballs and compute SHAs
+          base="https://github.com/PavelHopson/eclipse-claw/releases/download/${GITHUB_REF_NAME}"
           for target in aarch64-apple-darwin x86_64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu; do
-            curl -sSL "${base}/eclipse-claw-${tag}-${target}.tar.gz" -o "${target}.tar.gz"
+            curl --fail --silent --show-error --location \
+              "${base}/eclipse-claw-${GITHUB_REF_NAME}-${target}.tar.gz" \
+              --output "${target}.tar.gz"
           done
-
-          SHA_MAC_ARM=$(sha256sum aarch64-apple-darwin.tar.gz | cut -d' ' -f1)
-          SHA_MAC_X86=$(sha256sum x86_64-apple-darwin.tar.gz | cut -d' ' -f1)
-          SHA_LINUX_ARM=$(sha256sum aarch64-unknown-linux-gnu.tar.gz | cut -d' ' -f1)
-          SHA_LINUX_X86=$(sha256sum x86_64-unknown-linux-gnu.tar.gz | cut -d' ' -f1)
-
-          echo "macOS arm64:  $SHA_MAC_ARM"
-          echo "macOS x86_64: $SHA_MAC_X86"
-          echo "Linux arm64:  $SHA_LINUX_ARM"
-          echo "Linux x86_64: $SHA_LINUX_X86"
-
-          # Generate formula
-          cat > eclipse-claw.rb << FORMULA
-          class EclipseClaw < Formula
-            desc "The fastest web scraper for AI agents. 67% fewer tokens. Sub-ms extraction."
-            homepage "https://webclaw.io"
-            license "AGPL-3.0"
-            version "${tag#v}"
-
-            on_macos do
-              if Hardware::CPU.arm?
-                url "${base}/eclipse-claw-${tag}-aarch64-apple-darwin.tar.gz"
-                sha256 "${SHA_MAC_ARM}"
-              else
-                url "${base}/eclipse-claw-${tag}-x86_64-apple-darwin.tar.gz"
-                sha256 "${SHA_MAC_X86}"
-              end
-            end
-
-            on_linux do
-              if Hardware::CPU.arm?
-                url "${base}/eclipse-claw-${tag}-aarch64-unknown-linux-gnu.tar.gz"
-                sha256 "${SHA_LINUX_ARM}"
-              else
-                url "${base}/eclipse-claw-${tag}-x86_64-unknown-linux-gnu.tar.gz"
-                sha256 "${SHA_LINUX_X86}"
-              end
-            end
-
-            def install
-              bin.install "eclipse-claw"
-              bin.install "eclipse-claw-mcp"
-            end
-
-            test do
-              assert_match "eclipse-claw", shell_output("#{bin}/eclipse-claw --version")
-            end
-          end
-          FORMULA
-
-          # Remove leading whitespace from heredoc
-          sed -i 's/^          //' eclipse-claw.rb
-
-          # Push to homebrew tap
-          git clone "https://x-access-token:${COMMITTER_TOKEN}@github.com/PavelHopson/homebrew-eclipse-claw.git" tap
-          cp eclipse-claw.rb tap/Formula/eclipse-claw.rb
-          cd tap
+          sha_mac_arm="$(sha256sum aarch64-apple-darwin.tar.gz | cut -d' ' -f1)"
+          sha_mac_x86="$(sha256sum x86_64-apple-darwin.tar.gz | cut -d' ' -f1)"
+          sha_linux_arm="$(sha256sum aarch64-unknown-linux-gnu.tar.gz | cut -d' ' -f1)"
+          sha_linux_x86="$(sha256sum x86_64-unknown-linux-gnu.tar.gz | cut -d' ' -f1)"
+          mkdir -p tap/Formula
+          sed \
+            -e "s|@@VERSION@@|${GITHUB_REF_NAME#v}|g" \
+            -e "s|@@TAG@@|${GITHUB_REF_NAME}|g" \
+            -e "s|@@BASE@@|${base}|g" \
+            -e "s|@@SHA_MAC_ARM@@|${sha_mac_arm}|g" \
+            -e "s|@@SHA_MAC_X86@@|${sha_mac_x86}|g" \
+            -e "s|@@SHA_LINUX_ARM@@|${sha_linux_arm}|g" \
+            -e "s|@@SHA_LINUX_X86@@|${sha_linux_x86}|g" \
+            .github/homebrew/eclipse-claw.rb.tmpl > tap/Formula/eclipse-claw.rb
+      - name: Commit formula
+        working-directory: tap
+        run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add Formula/eclipse-claw.rb
-          git diff --cached --quiet || git commit -m "Update eclipse-claw to ${tag}"
+          git diff --cached --quiet || git commit -m "chore: update eclipse-claw to ${GITHUB_REF_NAME}"
           git push

@@ -1,5 +1,7 @@
-use axum::{Json, extract::State};
-use eclipse_claw_cdp::{CdpClient, CdpConfig};
+use axum::{
+    Json,
+    extract::{Query, State},
+};
 use eclipse_claw_core::ExtractionOptions;
 use eclipse_claw_llm::guard::{guarded_system_prompt, wrap_untrusted_content};
 use eclipse_claw_llm::provider::{CompletionRequest, LlmProvider, Message};
@@ -79,6 +81,11 @@ pub struct BatchItem {
     pub error: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct AuditQuery {
+    pub limit: Option<usize>,
+}
+
 // ── Handlers ────────────────────────────────────────────────────────────────
 
 /// `POST /extract` — fetch URL, return structured extraction.
@@ -144,7 +151,7 @@ pub async fn summarise_url(
 
     if state.llm.is_empty() {
         return Err(ApiError::Internal(
-            "no LLM providers configured (set OPENAI_API_KEY / DEEPSEEK_API_KEY / ANTHROPIC_API_KEY or run Ollama)".into(),
+            "no isolated LLM worker configured; set ECLIPSE_LLM_WORKER_URL and ECLIPSE_LLM_WORKER_TOKEN".into(),
         ));
     }
 
@@ -285,18 +292,24 @@ pub async fn design_tokens(
         ));
     }
 
-    let config = CdpConfig {
-        // The CDP endpoint is server-controlled. Request data must never choose
-        // an internal WebSocket target.
-        chrome_ws: state.chrome_ws.clone(),
-        hydration_wait_ms: req.hydration_wait_ms.unwrap_or(1500),
-        viewport_width: req.viewport_width.unwrap_or(1440),
-        ..CdpConfig::default()
-    };
-
-    let client = CdpClient::new(config);
-    let tokens = client
-        .extract_design_tokens(&req.url)
+    let hydration_wait_ms = req.hydration_wait_ms.unwrap_or(1500);
+    if hydration_wait_ms > 5_000 {
+        return Err(ApiError::BadRequest(
+            "hydration_wait_ms must not exceed 5000".into(),
+        ));
+    }
+    let viewport_width = req.viewport_width.unwrap_or(1440);
+    if !(320..=3840).contains(&viewport_width) {
+        return Err(ApiError::BadRequest(
+            "viewport_width must be between 320 and 3840".into(),
+        ));
+    }
+    let worker = state
+        .cdp_worker
+        .as_ref()
+        .ok_or_else(|| ApiError::Internal("isolated CDP worker is not configured".into()))?;
+    let tokens = worker
+        .extract(&req.url, hydration_wait_ms, viewport_width)
         .await
         .map_err(|e| ApiError::Internal(e.to_string()))?;
 
@@ -318,8 +331,45 @@ pub struct DesignTokensRequest {
 }
 
 /// `GET /health` — liveness probe.
-pub async fn health() -> Json<Value> {
-    Json(json!({ "ok": true, "service": "eclipse-claw-server" }))
+pub async fn health(State(state): State<AppState>) -> Json<Value> {
+    Json(json!({
+        "ok": true,
+        "service": "eclipse-claw-server",
+        "workers": {
+            "llm_ready": !state.llm.is_empty(),
+            "cdp_ready": state.cdp_enabled,
+        },
+        "audit": {
+            "enabled": state.audit.is_some(),
+            "required": state.audit_required,
+            "retention_days": state.audit.as_ref().map(|store| store.retention_days()),
+        }
+    }))
+}
+
+/// `GET /audit/events` — return recent privacy-preserving audit records.
+///
+/// This endpoint is protected by the same Bearer token as other server APIs
+/// and additionally requires explicit `ECLIPSE_AUDIT_READ_ENABLED=1` consent.
+pub async fn recent_audit(
+    State(state): State<AppState>,
+    Query(query): Query<AuditQuery>,
+) -> Result<Json<Value>, ApiError> {
+    if !state.audit_read_enabled {
+        return Err(ApiError::Forbidden(
+            "audit read API is disabled; set ECLIPSE_AUDIT_READ_ENABLED=1 explicitly".into(),
+        ));
+    }
+    let store = state
+        .audit
+        .clone()
+        .ok_or_else(|| ApiError::Internal("durable audit is disabled".into()))?;
+    let limit = query.limit.unwrap_or(100).clamp(1, 200);
+    let events = tokio::task::spawn_blocking(move || store.recent(limit))
+        .await
+        .map_err(|error| ApiError::Internal(error.to_string()))?
+        .map_err(|error| ApiError::Internal(error.to_string()))?;
+    Ok(Json(json!({"ok": true, "data": {"events": events}})))
 }
 
 /// `GET /connectors` — list the static allowlisted connector registry.
@@ -372,11 +422,39 @@ mod tests {
         Router::new()
             .route("/health", get(health))
             .route("/extract/html", post(extract_html))
+            .with_state(test_state())
     }
 
     async fn body_json(body: Body) -> Value {
         let bytes = body.collect().await.unwrap().to_bytes();
         serde_json::from_slice(&bytes).unwrap()
+    }
+
+    fn test_state() -> AppState {
+        let client = eclipse_claw_fetch::FetchClient::new(Default::default()).unwrap();
+        let llm = eclipse_claw_llm::ProviderChain::from_providers(Vec::new());
+        let doctor = eclipse_claw_connectors::DoctorReport::from_signals(
+            eclipse_claw_connectors::RuntimeSignals {
+                local_fetch_ready: true,
+                local_llm_ready: false,
+                cloud_key_present: false,
+                cloud_fallback_enabled: false,
+                public_egress_only: true,
+                session_cookie_transfer_enabled: false,
+                untrusted_content_boundary: true,
+                cdp_browser_enabled: false,
+            },
+        );
+        AppState {
+            client: std::sync::Arc::new(client),
+            llm: std::sync::Arc::new(llm),
+            cdp_worker: None,
+            cdp_enabled: false,
+            doctor: std::sync::Arc::new(doctor),
+            audit: None,
+            audit_required: false,
+            audit_read_enabled: false,
+        }
     }
 
     // ── /health ────────────────────────────────────────────────

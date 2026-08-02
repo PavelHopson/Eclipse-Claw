@@ -191,6 +191,9 @@ eclipse-claw --cookie "session=abc123; theme=dark" https://example.com
 eclipse-claw -H "X-Custom: value" -H "Authorization: Bearer token" https://example.com
 ```
 
+Use cookies only with a dedicated low-privilege test account in a trusted local CLI process.
+Never pass a production browser session, personal account cookie, or cookie file to a remote agent.
+
 ## LLM-Powered Features
 
 These require an LLM provider (Ollama local, or OpenAI/Anthropic API key).
@@ -258,10 +261,12 @@ eclipse-claw --proxy socks5://proxy.example.com:1080 https://example.com
 # Proxy rotation from file (one per line: host:port:user:pass)
 eclipse-claw --proxy-file proxies.txt https://example.com
 
-# Auto-load proxies.txt from current directory
-echo "proxy1.com:8080:user:pass" > proxies.txt
-eclipse-claw https://example.com  # Automatically detects and uses proxies.txt
+# Proxy files are never auto-discovered; pass the reviewed file explicitly.
+eclipse-claw --proxy-file ./proxies.txt https://example.com
 ```
+
+For MCP, proxy-side DNS additionally requires `ECLIPSE_CLAW_ALLOW_PROXY_DNS=1`. A proxy can see
+destinations and traffic metadata, so use only infrastructure you control or have approved.
 
 ## MCP Server (AI Agent Integration)
 

@@ -219,7 +219,7 @@ fn parse_docx_xml(xml: &str) -> Result<String, FetchError> {
                 }
             }
             Ok(Event::Text(ref e)) if in_text => {
-                if let Ok(text) = e.unescape() {
+                if let Some(text) = decode_xml_text(e) {
                     current_text.push_str(&text);
                 }
             }
@@ -232,6 +232,13 @@ fn parse_docx_xml(xml: &str) -> Result<String, FetchError> {
     }
 
     Ok(paragraphs.join("\n\n"))
+}
+
+fn decode_xml_text(text: &quick_xml::events::BytesText<'_>) -> Option<String> {
+    let decoded = text.decode().ok()?;
+    quick_xml::escape::unescape(&decoded)
+        .ok()
+        .map(|value| value.into_owned())
 }
 
 /// Check if a qualified name belongs to the `w:` (wordprocessingML) namespace.

@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-08-02
+
 ### Added
 - Static allowlisted connector registry shared by REST and MCP without dynamic plugin discovery.
 - Read-only MCP `doctor` tool plus `GET /connectors` and `GET /connectors/doctor` endpoints.
@@ -15,6 +17,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   for MCP and REST web-derived output.
 - Default robots.txt `Allow`/`Disallow` and `Crawl-delay` enforcement for recursive crawling.
 - Structured security audit events that redact URL paths, queries, credentials and content.
+- Authenticated `eclipse-claw-worker` runtime for isolated LLM and CDP capabilities.
+- Durable privacy-preserving JSONL audit with bounded rotation, retention and protected read API.
+- Pinned four-page regression fixtures plus extraction and prompt-boundary release gates.
 
 ### Changed
 - Automatic local-to-cloud fallback now requires separate explicit consent through
@@ -29,6 +34,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   local egress resolver.
 - REST CDP extraction is disabled unless `ECLIPSE_ENABLE_CDP=1`; request bodies can no longer
   override the server-controlled Chrome DevTools WebSocket endpoint.
+- Production REST no longer starts Chromium or reads provider credentials. It connects only to
+  explicitly configured, separately authenticated LLM/CDP workers.
+- Release archives now require CLI, MCP, REST and worker binaries, SHA-256 checksums and GitHub
+  artifact provenance; GitHub Actions dependencies are pinned to immutable commits.
 
 ### Security
 - Connector diagnostics expose only readiness booleans and static policy metadata. They do
@@ -39,6 +48,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   rather than by a separate preflight lookup that could be bypassed with DNS rebinding.
 - Browser navigation receives a DNS preflight and remains explicit opt-in because Chromium owns
   its connection and cannot share the HTTP transport's resolver.
+- RustSec-reported vulnerabilities in the PDF, XML, QUIC, TLS, MCP and random-number dependency
+  chains were removed by upgrading the affected crates; the obsolete `async-std` browser runtime
+  chain was removed instead of allowlisting its advisories.
+- Container examples run as a non-root user with read-only filesystems, dropped capabilities,
+  resource bounds and separate internal/egress networks. Browser sandbox disable is restricted to
+  the isolated capability-dropped CDP container.
 
 ## [0.3.9] — 2026-04-04
 

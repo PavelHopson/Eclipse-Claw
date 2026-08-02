@@ -2,6 +2,7 @@ pub mod anthropic;
 pub mod deepseek;
 pub mod ollama;
 pub mod openai;
+pub mod worker;
 
 /// Load an API key from an explicit override or an environment variable.
 /// Returns `None` if neither is set or the value is empty.
