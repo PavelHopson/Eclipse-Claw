@@ -9,7 +9,7 @@
 
 <h3 align="center">
   One command to give your AI agent reliable web access.<br/>
-  <sub>No headless browser. No Puppeteer. No 403s.</sub>
+  <sub>Fast HTTP extraction first. Isolated browser worker only when explicitly enabled.</sub>
 </h3>
 
 <p align="center">
@@ -26,7 +26,9 @@
 npx create-eclipse-claw
 ```
 
-That's it. Auto-detects your AI tools, downloads the MCP server, configures everything.
+The installer shows the detected tools, asks before changing them, downloads a release archive,
+verifies its SHA-256, and preserves the original config in a one-time `.eclipse-claw.bak` backup.
+No API key is required for local extraction.
 
 Works with **Claude Desktop**, **Claude Code**, **Cursor**, **Windsurf**, **VS Code**, **OpenCode**, **Codex CLI**, and **Antigravity**.
 
@@ -34,15 +36,19 @@ Works with **Claude Desktop**, **Claude Code**, **Cursor**, **Windsurf**, **VS C
 
 ## The Problem
 
-Your AI agent calls `fetch()` and gets a 403. Cloudflare, Akamai, and every major CDN fingerprint the TLS handshake and block non-browser clients before the request hits the server.
+Your AI agent calls `fetch()` and may get a 403 because some sites compare TLS, HTTP/2 and other
+request signals before returning content.
 
 When it does work, you get 100KB+ of raw HTML — navigation, ads, cookie banners, scripts. Your agent burns 4,000+ tokens parsing noise.
 
 ## The Fix
 
-eclipse-claw impersonates Chrome 146 at the TLS protocol level. Perfect JA4 fingerprint. Perfect HTTP/2 Akamai hash. 99% bypass rate on 102 tested sites.
+eclipse-claw can use browser-like TLS and HTTP/2 profiles when a normal HTTP client is rejected.
+Results depend on the target, its policy, rate limits and current anti-bot rules; no universal
+bypass rate is promised.
 
-Then it extracts just the content — clean markdown, 67% fewer tokens.
+It then removes common navigation and page noise and returns compact markdown. Token savings vary
+by page and model tokenizer.
 
 ```
                      Raw HTML                          eclipse-claw
@@ -66,10 +72,12 @@ Then it extracts just the content — clean markdown, 67% fewer tokens.
 npx create-eclipse-claw
 ```
 
-1. Detects installed AI tools (Claude, Cursor, Windsurf, VS Code, OpenCode, Codex, Antigravity)
-2. Downloads the `eclipse-claw-mcp` binary for your platform (macOS arm64/x86, Linux x86/arm64)
-3. Asks for your API key (optional — **works locally without one**)
-4. Writes the MCP config for each detected tool
+1. Detects installed AI tools (Claude, Cursor, Windsurf, VS Code, OpenCode, Codex, Antigravity).
+2. Downloads the latest macOS/Linux release archive and verifies it against the release
+   `SHA256SUMS` file. Other platforms use a tag-pinned, locked Cargo build when Rust is installed.
+3. Asks for your API key (optional — **local extraction works without one**).
+4. Refuses malformed JSON, keeps a one-time local backup, writes each config atomically and reports
+   every changed path. If you enter an API key, it is stored in those local MCP configs.
 
 ## 11 MCP Tools
 
@@ -105,30 +113,30 @@ which connectors are ready and whether automatic cloud transfer is explicitly en
 | Codex CLI | `~/.codex/config.json` |
 | Antigravity | `~/.antigravity/mcp.json` |
 
-## Sites That Work
+## What to expect
 
-eclipse-claw gets through where default `fetch()` gets blocked:
-
-Nike, Cloudflare, Bloomberg, Zillow, Indeed, Viagogo, Fansale, Wikipedia, Stripe, and 93 more. Tested on 102 sites with **99% success rate**.
+Start with public pages you are allowed to access. Some sites require the optional isolated browser
+worker, authenticated sessions or stricter rate limits; others prohibit automated access. Run the
+`doctor` tool to see which connectors and data boundaries are active before a research task.
 
 ## Alternative Install Methods
 
 ### Homebrew
 
-```bash
-brew tap PavelHopson/eclipse-claw && brew install eclipse-claw
-```
+A public Homebrew tap is not available yet. Use the verified release archives until it is published.
 
 ### Docker
 
 ```bash
-docker run --rm ghcr.io/pavelhopson/eclipse-claw https://example.com
+docker run --rm --read-only --cap-drop=ALL \
+  ghcr.io/pavelhopson/eclipse-claw:v0.4.2 https://example.com
 ```
 
 ### Cargo
 
 ```bash
-cargo install --git https://github.com/PavelHopson/eclipse-claw.git eclipse-claw-cli
+cargo install --git https://github.com/PavelHopson/eclipse-claw.git \
+  --tag v0.4.2 --locked eclipse-claw-cli
 ```
 
 ### Prebuilt Binaries

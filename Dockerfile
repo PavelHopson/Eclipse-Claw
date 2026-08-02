@@ -4,7 +4,7 @@
 # ---------------------------------------------------------------------------
 # Stage 1: Build all binaries in release mode
 # ---------------------------------------------------------------------------
-FROM rust:1.93-bookworm AS builder
+FROM rust:1.93-bookworm@sha256:7c4ae649a84014c467d79319bbf17ce2632ae8b8be123ac2fb2ea5be46823f31 AS builder
 
 # Build dependencies: cmake + clang for BoringSSL (wreq), pkg-config for linking
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -59,7 +59,7 @@ RUN touch crates/*/src/*.rs \
 # ---------------------------------------------------------------------------
 # Stage 2: Minimal runtime image
 # ---------------------------------------------------------------------------
-FROM debian:bookworm-slim AS runtime
+FROM debian:bookworm-slim@sha256:7b140f374b289a7c2befc338f42ebe6441b7ea838a042bbd5acbfca6ec875818 AS runtime
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \

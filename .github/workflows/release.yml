@@ -30,6 +30,11 @@ jobs:
           }
       - name: Verify pinned benchmark fixtures
         run: node scripts/verify-benchmark-fixtures.mjs
+      - name: Verify immutable container inputs
+        run: node scripts/verify-container-supply-chain.mjs
+      - name: Test the verified MCP installer
+        working-directory: packages/create-eclipse-claw
+        run: npm test
       - name: Run fixed security benchmarks
         run: |
           cargo test -p eclipse-claw-core --test fixed_public_benchmark
@@ -204,6 +209,42 @@ jobs:
               "${image}:${GITHUB_REF_NAME}-amd64" \
               "${image}:${GITHUB_REF_NAME}-arm64"
           done
+
+  npm:
+    name: Publish verified MCP installer
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Detect optional npm configuration
+        id: npm-config
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        shell: bash
+        run: |
+          if [ -n "$NPM_TOKEN" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::NPM_TOKEN is not configured; skipping optional npm publish."
+          fi
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        if: steps.npm-config.outputs.enabled == 'true'
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        if: steps.npm-config.outputs.enabled == 'true'
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - name: Test and publish installer with provenance
+        if: steps.npm-config.outputs.enabled == 'true'
+        working-directory: packages/create-eclipse-claw
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          npm test
+          npm publish --access public --provenance
 
   homebrew:
     name: Update Homebrew

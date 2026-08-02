@@ -14,8 +14,8 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
-scraper = "0.22"
-ego-tree = "0.10"
+scraper = "0.27"
+ego-tree = "0.11"
 url = { version = "2", features = ["serde"] }
 regex = "1"
 once_cell = "1"

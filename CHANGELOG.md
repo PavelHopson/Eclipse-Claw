@@ -5,6 +5,38 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.4.2] — 2026-08-02
+
+### Added
+- CI contract that rejects mutable external Docker base images and scans the core and isolated
+  browser-worker OS layers for fixed High/Critical vulnerabilities.
+- Defensive installer tests for HTTPS-only downloads, exact checksum matching and archive path
+  containment.
+- Container supply-chain policy and an authorized staging security-test checklist.
+
+### Changed
+- Rust and Debian Docker bases are pinned to verified multi-platform SHA-256 digests.
+- `scraper` is upgraded from 0.22 to 0.27, replacing the unmaintained transitive `fxhash` crate
+  with the maintained `rustc-hash` chain.
+- Package documentation now explains variable extraction results and access-policy limits instead
+  of promising universal bypass or token-reduction rates.
+
+### Fixed
+- The `create-eclipse-claw` entry point now parses correctly; hyphenated MCP keys use bracket
+  notation instead of invalid JavaScript property syntax.
+- The installer now matches the actual versioned release archive names, verifies `SHA256SUMS`,
+  rejects unsafe archive paths and installs from a tag-pinned locked Cargo build only when a
+  verified prebuilt archive is unavailable.
+- Codex TOML values are escaped before config writes, and installer subprocesses no longer build
+  shell command strings from local paths.
+- Config changes now require confirmation, refuse malformed JSON, keep a one-time local backup and
+  replace the target atomically instead of truncating it in place.
+
+### Security
+- The remaining `ttf-parser` maintenance warning is isolated to `pdf-extract -> lopdf 0.42` and
+  has no published vulnerability. Replacement is deferred until `pdf-extract` supports the
+  `lopdf 0.44+` feature split or a separately reviewed PDF backend is selected.
+
 ## [0.4.1] — 2026-08-02
 
 ### Fixed

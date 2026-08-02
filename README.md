@@ -47,7 +47,9 @@
 npx create-eclipse-claw
 ```
 
-Автоматически определяет ваши AI-инструменты, скачивает MCP-сервер и настраивает всё. Одна команда.
+Установщик показывает найденные AI-инструменты, спрашивает подтверждение, скачивает архив из
+GitHub Release, проверяет SHA-256 и только затем атомарно записывает выбранные MCP-конфиги. Первый
+исходный конфиг сохраняется рядом как `.eclipse-claw.bak`. API key для локального извлечения не нужен.
 
 ### Проверенные готовые бинарники
 
@@ -58,14 +60,15 @@ npx create-eclipse-claw
 ### Cargo (из исходников)
 
 ```bash
-cargo install --locked --git https://github.com/PavelHopson/Eclipse-Claw.git --tag v0.4.1 eclipse-claw-cli
-cargo install --locked --git https://github.com/PavelHopson/Eclipse-Claw.git --tag v0.4.1 eclipse-claw-mcp
+cargo install --locked --git https://github.com/PavelHopson/Eclipse-Claw.git --tag v0.4.2 eclipse-claw-cli
+cargo install --locked --git https://github.com/PavelHopson/Eclipse-Claw.git --tag v0.4.2 eclipse-claw-mcp
 ```
 
 ### Docker
 
 ```bash
-docker run --rm ghcr.io/pavelhopson/eclipse-claw https://example.com
+docker run --rm --read-only --cap-drop=ALL \
+  ghcr.io/pavelhopson/eclipse-claw:v0.4.2 https://example.com
 ```
 
 ### Docker Compose (с Ollama для LLM-функций)
@@ -78,17 +81,19 @@ docker compose up -d
 
 ---
 
-## Сравнение с аналогами
+## Когда выбирать Eclipse Claw
 
-| | Eclipse Claw | Firecrawl | Trafilatura | [Apify Skills](https://github.com/apify/agent-skills) |
-|---|:---:|:---:|:---:|:---:|
-| **Воспроизводимый fixture gate** | **Да** | См. проект | См. проект | См. платформу |
-| **LLM-ориентированный вывод** | **Да** | Да | Текст | Структурированный JSON |
-| **Локальное выполнение** | **Да** | Опционально | Да | Нет |
-| **TLS-отпечатки** | Да | Нет | Нет | Не нужно (API) |
-| **Self-hosted** | **Да** | Нет | Да | Нет (облако) |
-| **REST API сервер** | **Да** | Да | Нет | Да (Apify API) |
-| **Design token extraction (CDP)** | **Да** | Нет | Нет | Нет |
+| Задача | Решение |
+|---|---|
+| Нужен локальный CLI/MCP с компактным markdown | **Подходит сразу** |
+| Нужен self-hosted REST с отдельными LLM/CDP workers | **Подходит после настройки token и audit** |
+| Нужны публичные страницы без browser session | **Начните с быстрого HTTP extraction** |
+| Нужна SPA или страница, которая требует JavaScript | **Включите только изолированный CDP worker** |
+| Нужен полностью managed crawl без своей инфраструктуры | **Лучше выбрать hosted API** |
+| Нужен гарантированный обход любого anti-bot | **Такой гарантии Eclipse Claw не даёт** |
+
+Container policy: [docs/container-supply-chain.md](docs/container-supply-chain.md). Перед внешним
+доступом к REST пройдите [runtime security checklist](docs/runtime-security-test-plan.md).
 | **MCP-сервер** | **Да** | Нет | Нет | Нет |
 | **DeepSeek поддержка** | **Да** | Нет | Нет | Нет |
 | **JSONL-вывод** | **Да** | Нет | Нет | JSON |
