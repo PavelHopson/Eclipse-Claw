@@ -1059,13 +1059,13 @@ version = "0.3.9"
 dependencies = [
  "chromiumoxide",
  "eclipse-claw-core",
+ "eclipse-claw-fetch",
  "futures",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
- "url",
 ]
 
 [[package]]

@@ -1,6 +1,7 @@
 /// LLM-powered content summarization. Keeps it simple: one function, one prompt.
 use crate::clean::strip_thinking_tags;
 use crate::error::LlmError;
+use crate::guard::{guarded_system_prompt, wrap_untrusted_content};
 use crate::provider::{CompletionRequest, LlmProvider, Message};
 
 /// Summarize content using an LLM.
@@ -13,10 +14,10 @@ pub async fn summarize(
 ) -> Result<String, LlmError> {
     let n = max_sentences.unwrap_or(3);
 
-    let system = format!(
+    let system = guarded_system_prompt(&format!(
         "You are a summarization engine. Summarize the following content in exactly {n} sentences. \
          Output ONLY the summary, nothing else. No introductions, no questions, no formatting, no preamble."
-    );
+    ));
 
     let request = CompletionRequest {
         model: model.unwrap_or_default().to_string(),
@@ -27,7 +28,7 @@ pub async fn summarize(
             },
             Message {
                 role: "user".into(),
-                content: content.to_string(),
+                content: wrap_untrusted_content(content),
             },
         ],
         temperature: Some(0.3),

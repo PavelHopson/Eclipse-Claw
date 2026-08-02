@@ -30,6 +30,9 @@ pub struct CdpConfig {
 
     /// Viewport width for extraction (default: 1440).
     pub viewport_width: u32,
+
+    /// Outbound page-navigation policy. Public internet only by default.
+    pub network_policy: eclipse_claw_fetch::NetworkPolicy,
 }
 
 impl Default for CdpConfig {
@@ -39,6 +42,7 @@ impl Default for CdpConfig {
             timeout_secs: 30,
             hydration_wait_ms: 1500,
             viewport_width: 1440,
+            network_policy: eclipse_claw_fetch::NetworkPolicy::PublicOnly,
         }
     }
 }
@@ -82,8 +86,11 @@ impl CdpClient {
     /// then runs the extraction script and parses the result.
     #[instrument(skip(self), fields(url = %url))]
     pub async fn extract_design_tokens(&self, url: &str) -> Result<DesignTokens, CdpError> {
-        // Validate URL
-        url::Url::parse(url).map_err(|_| CdpError::InvalidUrl(url.to_string()))?;
+        // Validate navigation before Chrome can make a request. Chrome resolves
+        // DNS independently, so only public destinations are accepted here.
+        eclipse_claw_fetch::validate_resolved_url(url, self.config.network_policy)
+            .await
+            .map_err(|_| CdpError::InvalidUrl("navigation blocked by network policy".into()))?;
 
         info!("launching chrome for design token extraction");
 

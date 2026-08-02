@@ -16,6 +16,10 @@ pub struct RuntimeSignals {
     pub local_llm_ready: bool,
     pub cloud_key_present: bool,
     pub cloud_fallback_enabled: bool,
+    pub public_egress_only: bool,
+    pub session_cookie_transfer_enabled: bool,
+    pub untrusted_content_boundary: bool,
+    pub cdp_browser_enabled: bool,
 }
 
 /// Stable diagnostic document returned by REST and MCP.
@@ -88,6 +92,10 @@ pub struct SafetyBoundary {
     pub credentials_exposed: bool,
     pub browser_session_accessed: bool,
     pub dynamic_installation_performed: bool,
+    pub public_egress_only: bool,
+    pub session_cookie_transfer_enabled: bool,
+    pub untrusted_content_boundary: bool,
+    pub cdp_browser_enabled: bool,
 }
 
 impl DoctorReport {
@@ -192,7 +200,7 @@ impl DoctorReport {
         }
 
         Self {
-            schema_version: "1",
+            schema_version: "2",
             status: if signals.local_fetch_ready {
                 OverallStatus::Ready
             } else {
@@ -214,6 +222,10 @@ impl DoctorReport {
                 credentials_exposed: false,
                 browser_session_accessed: false,
                 dynamic_installation_performed: false,
+                public_egress_only: signals.public_egress_only,
+                session_cookie_transfer_enabled: signals.session_cookie_transfer_enabled,
+                untrusted_content_boundary: signals.untrusted_content_boundary,
+                cdp_browser_enabled: signals.cdp_browser_enabled,
             },
         }
     }
@@ -297,6 +309,7 @@ mod tests {
             local_llm_ready: true,
             cloud_key_present: true,
             cloud_fallback_enabled: false,
+            ..RuntimeSignals::default()
         });
         let json = serde_json::to_string(&report).unwrap();
 

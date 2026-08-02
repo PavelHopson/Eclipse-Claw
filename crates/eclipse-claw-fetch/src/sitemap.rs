@@ -47,7 +47,7 @@ pub async fn discover(
 
     // Step 1: Try robots.txt
     let robots_url = format!("{base}/robots.txt");
-    debug!(url = %robots_url, "fetching robots.txt");
+    debug!(target = %crate::egress::audit_target(&robots_url), "fetching robots.txt");
 
     match client.fetch(&robots_url).await {
         Ok(result) if result.status == 200 => {
@@ -93,16 +93,16 @@ async fn fetch_sitemaps(
     }
 
     for sitemap_url in urls {
-        debug!(url = %sitemap_url, depth, "fetching sitemap");
+        debug!(target = %crate::egress::audit_target(sitemap_url), depth, "fetching sitemap");
 
         let xml = match client.fetch(sitemap_url).await {
             Ok(result) if result.status == 200 => result.html,
             Ok(result) => {
-                debug!(url = %sitemap_url, status = result.status, "sitemap not found");
+                debug!(target = %crate::egress::audit_target(sitemap_url), status = result.status, "sitemap not found");
                 continue;
             }
             Err(e) => {
-                debug!(url = %sitemap_url, error = %e, "failed to fetch sitemap");
+                debug!(target = %crate::egress::audit_target(sitemap_url), error = %e, "failed to fetch sitemap");
                 continue;
             }
         };
@@ -131,7 +131,7 @@ async fn fetch_sitemaps(
                 .await;
             }
             SitemapType::Unknown => {
-                debug!(url = %sitemap_url, "unrecognized sitemap format, skipping");
+                debug!(target = %crate::egress::audit_target(sitemap_url), "unrecognized sitemap format, skipping");
             }
         }
     }
