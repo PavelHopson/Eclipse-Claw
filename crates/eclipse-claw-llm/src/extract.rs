@@ -2,6 +2,7 @@
 /// Both functions build a system prompt, send content to the LLM, and parse JSON back.
 use crate::clean::strip_thinking_tags;
 use crate::error::LlmError;
+use crate::guard::{guarded_system_prompt, wrap_untrusted_content};
 use crate::provider::{CompletionRequest, LlmProvider, Message};
 
 /// Extract structured JSON from content using a JSON schema.
@@ -12,12 +13,12 @@ pub async fn extract_json(
     provider: &dyn LlmProvider,
     model: Option<&str>,
 ) -> Result<serde_json::Value, LlmError> {
-    let system = format!(
+    let system = guarded_system_prompt(&format!(
         "You are a JSON extraction engine. Extract data from the content according to this schema.\n\
          Return ONLY valid JSON matching the schema. No explanations, no markdown, no commentary.\n\n\
          Schema:\n```json\n{}\n```",
         serde_json::to_string_pretty(schema).unwrap_or_else(|_| schema.to_string())
-    );
+    ));
 
     let request = CompletionRequest {
         model: model.unwrap_or_default().to_string(),
@@ -28,7 +29,7 @@ pub async fn extract_json(
             },
             Message {
                 role: "user".into(),
-                content: content.to_string(),
+                content: wrap_untrusted_content(content),
             },
         ],
         temperature: Some(0.0),
@@ -48,11 +49,11 @@ pub async fn extract_with_prompt(
     provider: &dyn LlmProvider,
     model: Option<&str>,
 ) -> Result<serde_json::Value, LlmError> {
-    let system = format!(
+    let system = guarded_system_prompt(&format!(
         "You are a JSON extraction engine. Extract information from the content based on these instructions.\n\
          Return ONLY valid JSON. No explanations, no markdown, no commentary.\n\n\
          Instructions: {prompt}"
-    );
+    ));
 
     let request = CompletionRequest {
         model: model.unwrap_or_default().to_string(),
@@ -63,7 +64,7 @@ pub async fn extract_with_prompt(
             },
             Message {
                 role: "user".into(),
-                content: content.to_string(),
+                content: wrap_untrusted_content(content),
             },
         ],
         temperature: Some(0.0),

@@ -71,6 +71,11 @@ Two binaries: `eclipse-claw` (CLI), `eclipse-claw-mcp` (MCP server).
 - **Connector registry is static and allowlisted** — no runtime package installation or executable discovery.
 - **Cloud credential is not consent** — automatic fallback additionally requires
   `ECLIPSE_CLAW_CLOUD_FALLBACK=1`; `doctor` never probes credentials or browser sessions.
+- **Public egress is fail-closed** — REST and MCP reject localhost/private/metadata destinations;
+  redirects use the same policy in the transport DNS resolver. Only trusted CLI use may opt in
+  with `--allow-private-network`.
+- **Web content is untrusted data** — keep the LLM guard and MCP trust envelope on every path that
+  passes remote text to an agent or model. Session cookies and server CDP require separate opt-in.
 
 ## Build & Test
 

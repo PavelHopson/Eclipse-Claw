@@ -19,6 +19,7 @@ use url::Url;
 
 use crate::client::{FetchClient, FetchConfig};
 use crate::error::FetchError;
+use crate::robots::RobotsPolicy;
 use crate::sitemap;
 
 /// Controls crawl scope, depth, concurrency, and politeness.
@@ -38,6 +39,8 @@ pub struct CrawlConfig {
     pub path_prefix: Option<String>,
     /// Seed BFS frontier from sitemap discovery before crawling.
     pub use_sitemap: bool,
+    /// Respect robots.txt Allow/Disallow and Crawl-delay directives.
+    pub respect_robots_txt: bool,
     /// Glob patterns for paths to include. If non-empty, only matching URLs are crawled.
     /// E.g. `["/api/*", "/guides/*"]` — matched against the URL path.
     pub include_patterns: Vec<String>,
@@ -62,6 +65,7 @@ impl Default for CrawlConfig {
             delay: Duration::from_millis(100),
             path_prefix: None,
             use_sitemap: false,
+            respect_robots_txt: true,
             include_patterns: Vec::new(),
             exclude_patterns: Vec::new(),
             progress_tx: None,
@@ -119,6 +123,11 @@ impl Crawler {
     /// Build a new crawler from a seed URL and config.
     /// Constructs the underlying `FetchClient` from `config.fetch`.
     pub fn new(seed_url: &str, config: CrawlConfig) -> Result<Self, FetchError> {
+        if config.concurrency == 0 {
+            return Err(FetchError::Build(
+                "crawl concurrency must be at least 1".into(),
+            ));
+        }
         let seed = Url::parse(seed_url).map_err(|_| FetchError::InvalidUrl(seed_url.into()))?;
         let seed_origin = origin_key(&seed);
 
@@ -202,7 +211,37 @@ impl Crawler {
             }
         };
 
-        let semaphore = Arc::new(Semaphore::new(self.config.concurrency));
+        let robots_url = seed.join("/robots.txt").ok();
+        let robots = if self.config.respect_robots_txt {
+            match robots_url {
+                Some(ref url) => match self.client.fetch(url.as_str()).await {
+                    Ok(response) if (200..300).contains(&response.status) => {
+                        RobotsPolicy::parse(&response.html)
+                    }
+                    Ok(_) => RobotsPolicy::default(),
+                    Err(error) => {
+                        warn!(error = %error, "robots.txt unavailable; continuing without rules");
+                        RobotsPolicy::default()
+                    }
+                },
+                None => RobotsPolicy::default(),
+            }
+        } else {
+            warn!("robots.txt policy explicitly disabled by caller");
+            RobotsPolicy::default()
+        };
+        let request_delay = self
+            .config
+            .delay
+            .max(robots.crawl_delay().unwrap_or(Duration::ZERO));
+        // Crawl-delay is a per-origin spacing rule. Serializing requests keeps
+        // concurrent tasks from waking and hitting the host at the same time.
+        let effective_concurrency = if robots.crawl_delay().is_some() {
+            1
+        } else {
+            self.config.concurrency
+        };
+        let semaphore = Arc::new(Semaphore::new(effective_concurrency));
         let mut visited: HashSet<String>;
         let mut pages: Vec<PageResult> = Vec::new();
         let mut frontier: Vec<(String, usize)>;
@@ -227,7 +266,9 @@ impl Crawler {
                     Ok(entries) => {
                         let before = frontier.len();
                         for entry in entries {
-                            if self.qualify_link(&entry.url, &visited).is_some() {
+                            if self.qualify_link(&entry.url, &visited).is_some()
+                                && Url::parse(&entry.url).is_ok_and(|url| robots.allows(&url))
+                            {
                                 let parsed = match Url::parse(&entry.url) {
                                     Ok(u) => u,
                                     Err(_) => continue,
@@ -259,6 +300,15 @@ impl Crawler {
             // Dedup this level's frontier against the visited set and page cap
             let batch: Vec<(String, usize)> = frontier
                 .drain(..)
+                .filter(|(url, _)| {
+                    Url::parse(url).is_ok_and(|parsed| {
+                        let allowed = robots.allows(&parsed);
+                        if !allowed {
+                            info!(target = %crate::egress::audit_target(url), "robots.txt denied crawl target");
+                        }
+                        allowed
+                    })
+                })
                 .filter(|(url, _)| visited.insert(url.clone()))
                 .take(self.config.max_pages.saturating_sub(pages.len()))
                 .collect();
@@ -275,7 +325,7 @@ impl Crawler {
                 let client = Arc::clone(&self.client);
                 let url = url.clone();
                 let depth = *depth;
-                let delay = self.config.delay;
+                let delay = request_delay;
 
                 handles.push(tokio::spawn(async move {
                     // Acquire permit — blocks if concurrency limit reached
@@ -289,7 +339,7 @@ impl Crawler {
                     match result {
                         Ok(extraction) => {
                             debug!(
-                                url = %url, depth,
+                                target = %crate::egress::audit_target(&url), depth,
                                 elapsed_ms = %elapsed.as_millis(),
                                 "page extracted"
                             );
@@ -302,7 +352,7 @@ impl Crawler {
                             }
                         }
                         Err(e) => {
-                            warn!(url = %url, depth, error = %e, "page failed");
+                            warn!(target = %crate::egress::audit_target(&url), depth, error = %e, "page failed");
                             PageResult {
                                 url,
                                 depth,
@@ -332,7 +382,9 @@ impl Crawler {
                     && let Some(ref extraction) = page.extraction
                 {
                     for link in &extraction.content.links {
-                        if let Some(candidate) = self.qualify_link(&link.href, &visited) {
+                        if let Some(candidate) = self.qualify_link(&link.href, &visited)
+                            && Url::parse(&candidate).is_ok_and(|url| robots.allows(&url))
+                        {
                             next_frontier.push((candidate, depth + 1));
                         }
                     }

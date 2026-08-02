@@ -306,8 +306,8 @@ eclipse-claw URLs --proxy-file proxies.txt            # Пул с ротацие
 В отличие от большинства аналогов, Eclipse Claw включает встроенный HTTP-сервер для интеграции с любым стеком:
 
 ```bash
-# Запустить сервер
-eclipse-claw-server --addr 0.0.0.0:3000
+# Безопасный локальный запуск (по умолчанию 127.0.0.1:3000)
+eclipse-claw-server
 
 # Извлечь контент
 curl -X POST http://localhost:3000/extract \
@@ -325,6 +325,25 @@ curl -X POST http://localhost:3000/batch \
   -d '{"urls": ["https://a.com", "https://b.com"]}'
 ```
 
+Сервер не открывается во внешнюю сеть без аутентификации. Для осознанного внешнего bind
+нужен Bearer token длиной от 32 символов:
+
+```bash
+export ECLIPSE_SERVER_ADDR=0.0.0.0:3000
+export ECLIPSE_SERVER_TOKEN='replace-with-a-random-secret-of-32-plus-chars'
+eclipse-claw-server
+
+curl -X POST http://server:3000/extract \
+  -H "Authorization: Bearer $ECLIPSE_SERVER_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"url": "https://example.com"}'
+```
+
+По умолчанию разрешены только публичные HTTP(S)-адреса: localhost, private/link-local сети,
+cloud metadata endpoints и redirects на них блокируются. CLI может обратиться к доверенному
+локальному сервису только с явным `--allow-private-network`. Размер ответа ограничен 20 MiB,
+а server concurrency — `ECLIPSE_MAX_CONCURRENCY`.
+
 ### Extraction design tokens через Chrome DevTools Protocol
 
 ```bash
@@ -336,6 +355,7 @@ eclipse-claw https://linear.app --design-tokens
 # → JSON: цвета, типографика, отступы, тени, CSS-переменные
 
 # Через REST API сервер
+export ECLIPSE_ENABLE_CDP=1  # только в изолированном доверенном worker
 curl -X POST http://localhost:3000/design-tokens \
   -H 'Content-Type: application/json' \
   -d '{"url": "https://vercel.com"}'
@@ -409,8 +429,29 @@ eclipse-claw/
 | `ANTHROPIC_API_KEY` | API-ключ Anthropic для LLM-функций |
 | `ECLIPSE_CLAW_PROXY` | URL одного прокси |
 | `ECLIPSE_CLAW_PROXY_FILE` | Путь к файлу с пулом прокси |
-| `ECLIPSE_SERVER_ADDR` | Адрес REST API сервера (по умолчанию: `0.0.0.0:3000`) |
+| `ECLIPSE_CLAW_ALLOW_PROXY_DNS` | Явное согласие MCP доверить DNS настроенному proxy (`1`; иначе MCP fail-closed) |
+| `ECLIPSE_CLAW_ALLOW_SESSION_COOKIES` | Явное локальное разрешение MCP передавать cookies (`1`; по умолчанию запрещено) |
+| `ECLIPSE_SERVER_ADDR` | Адрес REST API сервера (по умолчанию: `127.0.0.1:3000`) |
+| `ECLIPSE_SERVER_TOKEN` | Bearer token (минимум 32 символа), обязательный для любого non-loopback bind |
+| `ECLIPSE_ENABLE_CDP` | Явно включает `/design-tokens`; использовать только в изолированном worker |
 | `ECLIPSE_MAX_CONCURRENCY` | Макс. параллельных fetch-соединений в сервере (по умолчанию: `32`) |
+
+## Безопасная работа с AI-агентами
+
+- MCP помечает ответы сайтов и поисковые snippets как `untrusted`: это данные, а не команды агенту.
+- LLM extraction и summarization получают web-контент в отдельной границе и обязаны игнорировать
+  инструкции со страницы. Это снижает риск prompt injection, но не заменяет human review для
+  действий с секретами, аккаунтами или production.
+- MCP cookies выключены по умолчанию. Не передавайте production sessions и личные аккаунты;
+  включайте opt-in только в отдельном локальном процессе с минимальными правами.
+- Proxy выполняет DNS вне локальной egress-политики. MCP требует отдельный proxy-DNS opt-in;
+  `proxies.txt` больше не подхватывается автоматически из текущей директории.
+- Crawler по умолчанию учитывает `robots.txt`, `Allow`/`Disallow` и `Crawl-delay`, сохраняет
+  same-origin scope и ограничивает concurrency.
+- Security audit events пишутся через `tracing` только с `scheme://host[:port]`: URL query,
+  headers, cookies, API keys и содержимое страниц не логируются.
+- REST CORS не разрешён по умолчанию. Для browser-клиента задайте конкретный origin на
+  reverse proxy вместе с TLS, rate limit и своим auth/authorization слоем.
 
 ---
 

@@ -18,6 +18,7 @@ use tokio::sync::Semaphore;
 use tracing::{debug, instrument, warn};
 
 use crate::browser::{self, BrowserProfile, BrowserVariant};
+use crate::egress::{NetworkPolicy, audit_target, validate_url};
 use crate::error::FetchError;
 
 /// Configuration for building a [`FetchClient`].
@@ -36,6 +37,13 @@ pub struct FetchConfig {
     pub max_redirects: u32,
     pub headers: HashMap<String, String>,
     pub pdf_mode: PdfMode,
+    /// Maximum decoded response body size (default 20 MiB).
+    pub max_response_bytes: usize,
+    /// Outbound destination policy. Public internet only by default.
+    pub network_policy: NetworkPolicy,
+    /// Explicitly acknowledge that a configured proxy owns DNS resolution and
+    /// cannot be constrained by the local policy resolver.
+    pub allow_proxy_dns: bool,
 }
 
 impl Default for FetchConfig {
@@ -49,6 +57,9 @@ impl Default for FetchConfig {
             max_redirects: 10,
             headers: HashMap::from([("Accept-Language".to_string(), "en-US,en;q=0.9".to_string())]),
             pdf_mode: PdfMode::default(),
+            max_response_bytes: 20 * 1024 * 1024,
+            network_policy: NetworkPolicy::PublicOnly,
+            allow_proxy_dns: false,
         }
     }
 }
@@ -89,14 +100,29 @@ struct Response {
 
 impl Response {
     /// Buffer a wreq response into an owned Response.
-    async fn from_wreq(resp: wreq::Response) -> Result<Self, FetchError> {
+    async fn from_wreq(mut resp: wreq::Response, limit: usize) -> Result<Self, FetchError> {
         let status = resp.status().as_u16();
         let url = resp.uri().to_string();
         let headers = resp.headers().clone();
-        let body = resp
-            .bytes()
+        if resp
+            .content_length()
+            .is_some_and(|length| length > limit as u64)
+        {
+            return Err(FetchError::ResponseTooLarge { limit });
+        }
+
+        let mut body = Vec::new();
+        while let Some(chunk) = resp
+            .chunk()
             .await
-            .map_err(|e| FetchError::BodyDecode(e.to_string()))?;
+            .map_err(|e| FetchError::BodyDecode(e.to_string()))?
+        {
+            if body.len().saturating_add(chunk.len()) > limit {
+                return Err(FetchError::ResponseTooLarge { limit });
+            }
+            body.extend_from_slice(&chunk);
+        }
+        let body = bytes::Bytes::from(body);
         Ok(Self {
             status,
             url,
@@ -153,11 +179,22 @@ enum ClientPool {
 pub struct FetchClient {
     pool: ClientPool,
     pdf_mode: PdfMode,
+    network_policy: NetworkPolicy,
+    max_response_bytes: usize,
 }
 
 impl FetchClient {
     /// Build a new client from config.
     pub fn new(config: FetchConfig) -> Result<Self, FetchError> {
+        if (config.proxy.is_some() || !config.proxy_pool.is_empty())
+            && config.network_policy == NetworkPolicy::PublicOnly
+            && !config.allow_proxy_dns
+        {
+            return Err(FetchError::PolicyDenied(
+                "proxy DNS bypass is disabled; explicit operator consent is required".into(),
+            ));
+        }
+
         let variants = collect_variants(&config.browser);
         let pdf_mode = config.pdf_mode.clone();
 
@@ -170,6 +207,9 @@ impl FetchClient {
                         config.timeout,
                         &config.headers,
                         config.proxy.as_deref(),
+                        config.follow_redirects,
+                        config.max_redirects,
+                        config.network_policy,
                     )
                 })
                 .collect::<Result<Vec<_>, _>>()?;
@@ -189,7 +229,15 @@ impl FetchClient {
                 .iter()
                 .map(|proxy| {
                     let v = *variants.choose(&mut rng).unwrap();
-                    crate::tls::build_client(v, config.timeout, &config.headers, Some(proxy))
+                    crate::tls::build_client(
+                        v,
+                        config.timeout,
+                        &config.headers,
+                        Some(proxy),
+                        config.follow_redirects,
+                        config.max_redirects,
+                        config.network_policy,
+                    )
                 })
                 .collect::<Result<Vec<_>, _>>()?;
 
@@ -201,14 +249,19 @@ impl FetchClient {
             ClientPool::Rotating { clients }
         };
 
-        Ok(Self { pool, pdf_mode })
+        Ok(Self {
+            pool,
+            pdf_mode,
+            network_policy: config.network_policy,
+            max_response_bytes: config.max_response_bytes,
+        })
     }
 
     /// Fetch a URL and return the raw HTML + response metadata.
     ///
     /// Automatically retries on transient failures (network errors, 5xx, 429)
     /// with exponential backoff: 0s, 1s, 3s (3 attempts total).
-    #[instrument(skip(self), fields(url = %url))]
+    #[instrument(skip(self, url), fields(target = %audit_target(url)))]
     pub async fn fetch(&self, url: &str) -> Result<FetchResult, FetchError> {
         let delays = [
             Duration::ZERO,
@@ -226,7 +279,7 @@ impl FetchClient {
                 Ok(result) => {
                     if is_retryable_status(result.status) && attempt < delays.len() - 1 {
                         warn!(
-                            url,
+                            target = %audit_target(url),
                             status = result.status,
                             attempt = attempt + 1,
                             "retryable status, will retry"
@@ -235,7 +288,7 @@ impl FetchClient {
                         continue;
                     }
                     if attempt > 0 {
-                        debug!(url, attempt = attempt + 1, "retry succeeded");
+                        debug!(target = %audit_target(url), attempt = attempt + 1, "retry succeeded");
                     }
                     return Ok(result);
                 }
@@ -244,7 +297,7 @@ impl FetchClient {
                         return Err(e);
                     }
                     warn!(
-                        url,
+                        target = %audit_target(url),
                         error = %e,
                         attempt = attempt + 1,
                         "transient error, will retry"
@@ -260,15 +313,30 @@ impl FetchClient {
     /// Single fetch attempt.
     async fn fetch_once(&self, url: &str) -> Result<FetchResult, FetchError> {
         let start = Instant::now();
+        validate_url(url, self.network_policy)?;
         let client = self.pick_client(url);
 
         let resp = client.get(url).send().await?;
-        let response = Response::from_wreq(resp).await?;
+        let response = Response::from_wreq(resp, self.max_response_bytes).await?;
         response_to_result(response, start)
     }
 
+    /// POST a JSON body using the same fail-closed egress and redirect policy.
+    /// Intended for CLI webhooks; response content is deliberately discarded.
+    pub async fn post_json(&self, url: &str, body: String) -> Result<u16, FetchError> {
+        validate_url(url, self.network_policy)?;
+        let client = self.pick_client(url);
+        let response = client
+            .post(url)
+            .header(http::header::CONTENT_TYPE, "application/json")
+            .body(body)
+            .send()
+            .await?;
+        Ok(response.status().as_u16())
+    }
+
     /// Fetch a URL then extract structured content.
-    #[instrument(skip(self), fields(url = %url))]
+    #[instrument(skip(self, url), fields(target = %audit_target(url)))]
     pub async fn fetch_and_extract(
         &self,
         url: &str,
@@ -278,20 +346,24 @@ impl FetchClient {
     }
 
     /// Fetch a URL then extract structured content with custom extraction options.
-    #[instrument(skip(self, options), fields(url = %url))]
+    #[instrument(skip(self, url, options), fields(target = %audit_target(url)))]
     pub async fn fetch_and_extract_with_options(
         &self,
         url: &str,
         options: &eclipse_claw_core::ExtractionOptions,
     ) -> Result<eclipse_claw_core::ExtractionResult, FetchError> {
+        validate_url(url, self.network_policy)?;
+
         // Reddit fallback: use their JSON API to get post + full comment tree.
         if crate::reddit::is_reddit_url(url) {
             let json_url = crate::reddit::json_url(url);
             debug!("reddit detected, fetching {json_url}");
 
+            validate_url(&json_url, self.network_policy)?;
+
             let client = self.pick_client(url);
             let resp = client.get(&json_url).send().await?;
-            let response = Response::from_wreq(resp).await?;
+            let response = Response::from_wreq(resp, self.max_response_bytes).await?;
             if response.is_success() {
                 let bytes = response.body();
                 match crate::reddit::parse_reddit_json(bytes, url) {
@@ -304,7 +376,7 @@ impl FetchClient {
         let start = Instant::now();
         let client = self.pick_client(url);
         let resp = client.get(url).send().await?;
-        let mut response = Response::from_wreq(resp).await?;
+        let mut response = Response::from_wreq(resp, self.max_response_bytes).await?;
 
         // Cookie warmup: if we get a challenge page, visit the homepage first
         // to collect Akamai cookies (_abck, bm_sz, etc.), then retry.
@@ -314,7 +386,7 @@ impl FetchClient {
             debug!("challenge detected, warming cookies via {homepage}");
             let _ = client.get(&homepage).send().await;
             let resp = client.get(url).send().await?;
-            response = Response::from_wreq(resp).await?;
+            response = Response::from_wreq(resp, self.max_response_bytes).await?;
             debug!("retried after cookie warmup: status={}", response.status());
         }
 
@@ -386,7 +458,7 @@ impl FetchClient {
         urls: &[&str],
         concurrency: usize,
     ) -> Vec<BatchResult> {
-        let semaphore = Arc::new(Semaphore::new(concurrency));
+        let semaphore = Arc::new(Semaphore::new(concurrency.max(1)));
         let mut handles = Vec::with_capacity(urls.len());
 
         for (idx, url) in urls.iter().enumerate() {
@@ -425,7 +497,7 @@ impl FetchClient {
         concurrency: usize,
         options: &eclipse_claw_core::ExtractionOptions,
     ) -> Vec<BatchExtractResult> {
-        let semaphore = Arc::new(Semaphore::new(concurrency));
+        let semaphore = Arc::new(Semaphore::new(concurrency.max(1)));
         let mut handles = Vec::with_capacity(urls.len());
 
         for (idx, url) in urls.iter().enumerate() {
@@ -761,6 +833,7 @@ mod tests {
                 "http://proxy2:8080".into(),
                 "http://proxy3:8080".into(),
             ],
+            allow_proxy_dns: true,
             ..Default::default()
         };
         let client = FetchClient::new(config).unwrap();
@@ -791,6 +864,7 @@ mod tests {
     fn test_pick_for_host_distributes() {
         let config = FetchConfig {
             proxy_pool: (0..10).map(|i| format!("http://proxy{i}:8080")).collect(),
+            allow_proxy_dns: true,
             ..Default::default()
         };
         let client = FetchClient::new(config).unwrap();
@@ -837,5 +911,18 @@ mod tests {
         let config = FetchConfig::default();
         assert!(config.proxy_pool.is_empty());
         assert!(config.proxy.is_none());
+        assert!(!config.allow_proxy_dns);
+    }
+
+    #[test]
+    fn public_policy_rejects_proxy_without_dns_consent() {
+        let config = FetchConfig {
+            proxy: Some("http://proxy.example:8080".into()),
+            ..Default::default()
+        };
+        assert!(matches!(
+            FetchClient::new(config),
+            Err(FetchError::PolicyDenied(_))
+        ));
     }
 }

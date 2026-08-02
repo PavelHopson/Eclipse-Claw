@@ -10,8 +10,14 @@ pub enum FetchError {
     #[error("invalid url: {0}")]
     InvalidUrl(String),
 
+    #[error("outbound request blocked by security policy: {0}")]
+    PolicyDenied(String),
+
     #[error("response body decode failed: {0}")]
     BodyDecode(String),
+
+    #[error("response body exceeds {limit} bytes")]
+    ResponseTooLarge { limit: usize },
 
     #[error("extraction failed: {0}")]
     Extraction(#[from] eclipse_claw_core::ExtractError),

@@ -116,6 +116,10 @@ struct Cli {
     #[arg(short, long, default_value = "30")]
     timeout: u64,
 
+    /// Allow requests to localhost/private networks. Use only for trusted local development.
+    #[arg(long)]
+    allow_private_network: bool,
+
     /// Extract from local HTML file instead of fetching
     #[arg(long)]
     file: Option<String>,
@@ -362,6 +366,14 @@ fn init_logging(verbose: bool) {
     tracing_subscriber::fmt().with_env_filter(filter).init();
 }
 
+fn cli_network_policy(cli: &Cli) -> eclipse_claw_fetch::NetworkPolicy {
+    if cli.allow_private_network {
+        eclipse_claw_fetch::NetworkPolicy::AllowPrivate
+    } else {
+        eclipse_claw_fetch::NetworkPolicy::PublicOnly
+    }
+}
+
 /// Build FetchConfig from CLI flags.
 ///
 /// `--proxy` sets a single static proxy (no rotation).
@@ -378,18 +390,15 @@ fn build_fetch_config(cli: &Cli) -> FetchConfig {
                 (None, Vec::new())
             }
         }
-    } else if std::path::Path::new("proxies.txt").exists() {
-        // Auto-load proxies.txt from working directory if present
-        match eclipse_claw_fetch::parse_proxy_file("proxies.txt") {
-            Ok(pool) if !pool.is_empty() => {
-                eprintln!("loaded {} proxies from proxies.txt", pool.len());
-                (None, pool)
-            }
-            _ => (None, Vec::new()),
-        }
     } else {
         (None, Vec::new())
     };
+    let proxy_dns_acknowledged = proxy.is_some() || !proxy_pool.is_empty();
+    if proxy_dns_acknowledged {
+        eprintln!(
+            "warning: the explicitly configured proxy resolves destinations outside Eclipse Claw's DNS policy"
+        );
+    }
 
     let mut headers = std::collections::HashMap::from([(
         "Accept-Language".to_string(),
@@ -433,6 +442,8 @@ fn build_fetch_config(cli: &Cli) -> FetchConfig {
         timeout: std::time::Duration::from_secs(cli.timeout),
         pdf_mode: cli.pdf_mode.clone().into(),
         headers,
+        network_policy: cli_network_policy(cli),
+        allow_proxy_dns: proxy_dns_acknowledged,
         ..Default::default()
     }
 }
@@ -795,7 +806,11 @@ async fn fetch_html(cli: &Cli) -> Result<FetchResult, String> {
 
 /// Fetch external stylesheets referenced in HTML and inject them as `<style>` blocks.
 /// This allows brand extraction to see colors/fonts from external CSS files.
-async fn enrich_html_with_stylesheets(html: &str, base_url: &str) -> String {
+async fn enrich_html_with_stylesheets(
+    html: &str,
+    base_url: &str,
+    network_policy: eclipse_claw_fetch::NetworkPolicy,
+) -> String {
     let base = match url::Url::parse(base_url) {
         Ok(u) => u,
         Err(_) => return html.to_string(),
@@ -823,16 +838,20 @@ async fn enrich_html_with_stylesheets(html: &str, base_url: &str) -> String {
         return html.to_string();
     }
 
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(5))
-        .build()
-        .unwrap_or_default();
+    let client = match FetchClient::new(FetchConfig {
+        timeout: std::time::Duration::from_secs(5),
+        network_policy,
+        ..Default::default()
+    }) {
+        Ok(client) => client,
+        Err(_) => return html.to_string(),
+    };
 
     let mut extra_css = String::new();
     for href in &hrefs {
-        if let Ok(resp) = client.get(href).send().await
-            && resp.status().is_success()
-            && let Ok(body) = resp.text().await
+        if let Ok(resp) = client.fetch(href).await
+            && (200..300).contains(&resp.status)
+            && let body = resp.html
             && !body.trim_start().starts_with("<!")
             && body.len() < 2_000_000
         {
@@ -1391,6 +1410,7 @@ async fn run_crawl(cli: &Cli) -> Result<(), String> {
                 "elapsed_secs": result.elapsed_secs,
                 "urls": urls,
             }),
+            cli_network_policy(cli),
         );
         // Brief pause so the async webhook has time to fire
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
@@ -1500,6 +1520,7 @@ async fn run_batch(cli: &Cli, entries: &[(String, Option<String>)]) -> Result<()
                 "errors": errors,
                 "urls": urls,
             }),
+            cli_network_policy(cli),
         );
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
     }
@@ -1524,7 +1545,11 @@ fn timestamp() -> String {
 
 /// Fire a webhook POST with a JSON payload. Non-blocking — errors logged to stderr.
 /// Auto-detects Discord and Slack webhook URLs and wraps the payload accordingly.
-fn fire_webhook(url: &str, payload: &serde_json::Value) {
+fn fire_webhook(
+    url: &str,
+    payload: &serde_json::Value,
+    network_policy: eclipse_claw_fetch::NetworkPolicy,
+) {
     let url = url.to_string();
     let is_discord = url.contains("discord.com/api/webhooks");
     let is_slack = url.contains("hooks.slack.com");
@@ -1557,24 +1582,17 @@ fn fire_webhook(url: &str, payload: &serde_json::Value) {
         serde_json::to_string(payload).unwrap_or_default()
     };
     tokio::spawn(async move {
-        match reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(10))
-            .build()
-        {
-            Ok(c) => match c
-                .post(&url)
-                .header("Content-Type", "application/json")
-                .body(body)
-                .send()
-                .await
-            {
-                Ok(resp) => {
-                    eprintln!(
-                        "[webhook] POST {} -> {}",
-                        &url[..url.len().min(60)],
-                        resp.status()
-                    );
-                }
+        match FetchClient::new(FetchConfig {
+            timeout: std::time::Duration::from_secs(10),
+            network_policy,
+            ..Default::default()
+        }) {
+            Ok(client) => match client.post_json(&url, body).await {
+                Ok(status) => eprintln!(
+                    "[webhook] POST {} -> {}",
+                    eclipse_claw_fetch::audit_target(&url),
+                    status
+                ),
                 Err(e) => eprintln!("[webhook] POST failed: {e}"),
             },
             Err(e) => eprintln!("[webhook] client error: {e}"),
@@ -1682,6 +1700,7 @@ async fn run_watch_single(
                         "links_added": diff.links_added.len(),
                         "links_removed": diff.links_removed.len(),
                     }),
+                    cli_network_policy(cli),
                 );
             }
 
@@ -1840,6 +1859,7 @@ async fn run_watch_multi(
                         "same": same_count,
                         "changes": changed,
                     }),
+                    cli_network_policy(cli),
                 );
             }
         }
@@ -1866,7 +1886,8 @@ async fn run_diff(cli: &Cli, snapshot_path: &str) -> Result<(), String> {
 
 async fn run_brand(cli: &Cli) -> Result<(), String> {
     let result = fetch_html(cli).await?;
-    let enriched = enrich_html_with_stylesheets(&result.html, &result.url).await;
+    let network_policy = cli_network_policy(cli);
+    let enriched = enrich_html_with_stylesheets(&result.html, &result.url, network_policy).await;
     let brand = eclipse_claw_core::brand::extract_brand(
         &enriched,
         Some(result.url.as_str()).filter(|s| !s.is_empty()),
@@ -2122,6 +2143,7 @@ async fn run_batch_llm(cli: &Cli, entries: &[(String, Option<String>)]) -> Resul
                 "ok": ok,
                 "errors": errors,
             }),
+            cli_network_policy(cli),
         );
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
     }
@@ -2444,6 +2466,7 @@ async fn run_design_tokens(cli: &Cli) -> Result<(), String> {
     let config = CdpConfig {
         chrome_ws: cli.chrome_ws.clone(),
         timeout_secs: cli.timeout,
+        network_policy: cli_network_policy(cli),
         ..CdpConfig::default()
     };
 

@@ -327,6 +327,9 @@ pub fn build_client(
     timeout: Duration,
     extra_headers: &std::collections::HashMap<String, String>,
     proxy: Option<&str>,
+    follow_redirects: bool,
+    max_redirects: u32,
+    network_policy: crate::egress::NetworkPolicy,
 ) -> Result<Client, FetchError> {
     let (tls, h2, headers) = match variant {
         BrowserVariant::Chrome => (chrome_tls(), chrome_h2(), CHROME_HEADERS),
@@ -354,9 +357,23 @@ pub fn build_client(
         .headers(header_map)
         .build();
 
+    let redirect_policy = wreq::redirect::Policy::custom(move |attempt| {
+        if !follow_redirects {
+            return attempt.stop();
+        }
+        if attempt.previous.len() > max_redirects as usize {
+            return attempt.error("too many redirects");
+        }
+        match crate::egress::validate_url(&attempt.uri.to_string(), network_policy) {
+            Ok(_) => attempt.follow(),
+            Err(error) => attempt.error(error.to_string()),
+        }
+    });
+
     let mut builder = Client::builder()
         .emulation(emulation)
-        .redirect(wreq::redirect::Policy::limited(10))
+        .redirect(redirect_policy)
+        .dns_resolver(crate::egress::PolicyResolver::new(network_policy))
         .cookie_store(true)
         .timeout(timeout);
 

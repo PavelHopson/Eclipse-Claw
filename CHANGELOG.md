@@ -9,16 +9,36 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 - Static allowlisted connector registry shared by REST and MCP without dynamic plugin discovery.
 - Read-only MCP `doctor` tool plus `GET /connectors` and `GET /connectors/doctor` endpoints.
 - Machine-readable readiness, provenance, data-boundary, fallback and safe-next-step fields.
+- Public-only egress policy with transport-level DNS filtering, private/metadata IP blocking,
+  redirect revalidation and regression tests for IPv4/IPv6 special ranges.
+- Prompt-injection boundary for local LLM extraction/summarization and trust/provenance envelopes
+  for MCP and REST web-derived output.
+- Default robots.txt `Allow`/`Disallow` and `Crawl-delay` enforcement for recursive crawling.
+- Structured security audit events that redact URL paths, queries, credentials and content.
 
 ### Changed
 - Automatic local-to-cloud fallback now requires separate explicit consent through
   `--cloud-fallback` or `ECLIPSE_CLAW_CLOUD_FALLBACK=1`; storing an API key alone no
   longer authorizes automatic URL or content transfer. Explicit cloud tools remain available.
+- REST now binds to `127.0.0.1:3000` by default. Non-loopback binds require a Bearer token of at
+  least 32 non-whitespace characters; CORS is no longer open by default and request concurrency
+  is bounded.
+- MCP session cookies are disabled unless `ECLIPSE_CLAW_ALLOW_SESSION_COOKIES=1` is explicitly set.
+- Proxy files are no longer discovered implicitly. MCP proxy DNS requires separate
+  `ECLIPSE_CLAW_ALLOW_PROXY_DNS=1` consent because the proxy resolves destinations outside the
+  local egress resolver.
+- REST CDP extraction is disabled unless `ECLIPSE_ENABLE_CDP=1`; request bodies can no longer
+  override the server-controlled Chrome DevTools WebSocket endpoint.
 
 ### Security
 - Connector diagnostics expose only readiness booleans and static policy metadata. They do
   not probe the network, validate credentials, read browser sessions, install packages or
   return secret values.
+- Fetch responses are capped at 20 MiB to limit memory exhaustion from attacker-controlled pages.
+- The egress policy is enforced by the HTTP client's real DNS resolver, including every redirect,
+  rather than by a separate preflight lookup that could be bypassed with DNS rebinding.
+- Browser navigation receives a DNS preflight and remains explicit opt-in because Chromium owns
+  its connection and cannot share the HTTP transport's resolver.
 
 ## [0.3.9] — 2026-04-04
 

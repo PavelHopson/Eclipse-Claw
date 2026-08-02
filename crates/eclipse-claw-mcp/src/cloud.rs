@@ -227,7 +227,7 @@ pub async fn smart_fetch(
 
     // Step 2: Check for bot protection
     if is_bot_protected(&fetch_result.html, &fetch_result.headers) {
-        info!(url, "bot protection detected, falling back to cloud API");
+        info!(target = %eclipse_claw_fetch::audit_target(url), "bot protection detected, falling back to cloud API");
         return cloud_fallback(
             cloud,
             url,
@@ -257,7 +257,7 @@ pub async fn smart_fetch(
     // Step 4: Check for JS-rendered pages (low content from large HTML)
     if needs_js_rendering(extraction.metadata.word_count, &fetch_result.html) {
         info!(
-            url,
+            target = %eclipse_claw_fetch::audit_target(url),
             word_count = extraction.metadata.word_count,
             html_len = fetch_result.html.len(),
             "JS-rendered page detected, falling back to cloud API"
@@ -295,7 +295,7 @@ async fn cloud_fallback(
                     only_main_content,
                 )
                 .await?;
-            info!(url, "cloud API fallback successful");
+            info!(target = %eclipse_claw_fetch::audit_target(url), "cloud API fallback successful");
             Ok(SmartFetchResult::Cloud(resp))
         }
         None => Err(format!(
