@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+- `doctor` now exposes the isolated browser worker as a separate, read-only capability with its
+  data boundary and safe next step.
+
+### Security
+- Browser rendering is never added to the automatic fallback chain: local HTTP stays primary,
+  cookie transfer remains off, and an audited worker must be enabled explicitly for JS-heavy pages.
+
 ## [0.4.2] — 2026-08-02
 
 ### Added

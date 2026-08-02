@@ -333,6 +333,12 @@ docker compose --profile browser up -d cdp-worker
 `ECLIPSE_LLM_WORKER_TOKEN`. Если `ECLIPSE_REQUIRE_ISOLATED_WORKERS=1`, отсутствие корректного
 worker приводит к явной ошибке, а не к скрытому direct-provider fallback.
 
+Browser rendering не является автоматическим fallback. `doctor` показывает отдельный
+`isolated_browser_worker`, но HTTP extractor всегда остаётся первым путём. Worker разрешён только
+для публичных JS-heavy страниц из domain allowlist, без cookie import, telemetry, workspace и
+секретов. Контракт безопасного Camofox-compatible adapter описан в
+[`docs/camofox-worker-adapter.md`](docs/camofox-worker-adapter.md).
+
 #### Extraction design tokens через Chrome DevTools Protocol
 
 ```bash

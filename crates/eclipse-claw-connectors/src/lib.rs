@@ -194,6 +194,33 @@ impl DoctorReport {
             },
         };
 
+        let isolated_browser = ConnectorHealth {
+            id: "isolated_browser_worker",
+            name: "Isolated browser worker",
+            kind: ConnectorKind::LocalProvider,
+            status: if signals.cdp_browser_enabled {
+                ConnectorStatus::Ready
+            } else {
+                ConnectorStatus::Unavailable
+            },
+            capabilities: &["js_render", "accessibility_snapshot", "design_tokens"],
+            data_boundary: "separate read-only worker; public allowlisted URLs only; no workspace, secrets, cookies or account actions",
+            provenance: "explicitly configured first-party worker adapter; community browser servers are never auto-installed",
+            account_requirement: AccountRequirement::None,
+            requires_browser_session: false,
+            automatic_fallback_eligible: false,
+            reason: if signals.cdp_browser_enabled {
+                "isolated worker capability is explicitly enabled"
+            } else {
+                "browser capability is disabled; local HTTP remains the primary path"
+            },
+            next_step: if signals.cdp_browser_enabled {
+                "keep a domain allowlist, telemetry disabled and site content outside the planner trust boundary"
+            } else {
+                "enable an audited isolated worker only for a confirmed JS-heavy page"
+            },
+        };
+
         let mut order = vec!["local_http"];
         if cloud_auto {
             order.push("eclipse_cloud");
@@ -206,7 +233,7 @@ impl DoctorReport {
             } else {
                 OverallStatus::Degraded
             },
-            connectors: vec![local_fetch, local_llm, cloud],
+            connectors: vec![local_fetch, local_llm, cloud, isolated_browser],
             fallback: FallbackPolicy {
                 mode: if cloud_auto {
                     "local_then_explicitly_enabled_cloud"
@@ -313,11 +340,31 @@ mod tests {
         });
         let json = serde_json::to_string(&report).unwrap();
 
-        assert!(!json.contains("api_key"));
-        assert!(!json.contains("token"));
+        assert!(!json.contains("\"api_key\":"));
+        assert!(!json.contains("\"token\":"));
         assert!(!report.safety.network_probe_performed);
         assert!(!report.safety.credentials_exposed);
         assert!(!report.safety.browser_session_accessed);
         assert!(!report.safety.dynamic_installation_performed);
+    }
+
+    #[test]
+    fn browser_worker_is_visible_but_never_an_automatic_fallback() {
+        let disabled = DoctorReport::from_signals(RuntimeSignals {
+            local_fetch_ready: true,
+            ..RuntimeSignals::default()
+        });
+        assert_eq!(disabled.connectors[3].id, "isolated_browser_worker");
+        assert_eq!(disabled.connectors[3].status, ConnectorStatus::Unavailable);
+
+        let enabled = DoctorReport::from_signals(RuntimeSignals {
+            local_fetch_ready: true,
+            cdp_browser_enabled: true,
+            ..RuntimeSignals::default()
+        });
+        assert_eq!(enabled.connectors[3].status, ConnectorStatus::Ready);
+        assert!(!enabled.connectors[3].automatic_fallback_eligible);
+        assert_eq!(enabled.fallback.order, vec!["local_http"]);
+        assert!(!enabled.safety.session_cookie_transfer_enabled);
     }
 }
