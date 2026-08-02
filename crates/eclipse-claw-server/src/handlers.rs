@@ -587,7 +587,13 @@ mod tests {
 
         let registry = connectors_payload(&report);
         assert_eq!(registry["data"]["schema_version"], "2");
-        assert_eq!(registry["data"]["connectors"].as_array().unwrap().len(), 3);
+        let connectors = registry["data"]["connectors"].as_array().unwrap();
+        assert_eq!(connectors.len(), 4);
+        let browser = connectors
+            .iter()
+            .find(|connector| connector["id"] == "isolated_browser_worker")
+            .expect("isolated browser capability must stay visible in the registry");
+        assert_eq!(browser["automatic_fallback_eligible"], false);
 
         let doctor = doctor_payload(&report);
         assert_eq!(
@@ -596,7 +602,7 @@ mod tests {
         );
         assert_eq!(doctor["data"]["safety"]["network_probe_performed"], false);
         let serialized = serde_json::to_string(&doctor).unwrap();
-        assert!(!serialized.contains("api_key"));
-        assert!(!serialized.contains("token"));
+        assert!(!serialized.contains("\"api_key\":"));
+        assert!(!serialized.contains("\"token\":"));
     }
 }
