@@ -12,10 +12,10 @@ use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use eclipse_claw_pdf::PdfMode;
 use rand::seq::SliceRandom;
 use tokio::sync::Semaphore;
 use tracing::{debug, instrument, warn};
-use eclipse_claw_pdf::PdfMode;
 
 use crate::browser::{self, BrowserProfile, BrowserVariant};
 use crate::error::FetchError;
@@ -373,7 +373,8 @@ impl FetchClient {
                 debug!("linkedin extraction failed, falling back to standard");
             }
 
-            let extraction = eclipse_claw_core::extract_with_options(&html, Some(&final_url), options)?;
+            let extraction =
+                eclipse_claw_core::extract_with_options(&html, Some(&final_url), options)?;
 
             Ok(extraction)
         }

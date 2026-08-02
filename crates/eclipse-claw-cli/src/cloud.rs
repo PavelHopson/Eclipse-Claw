@@ -1,8 +1,8 @@
-/// Cloud API client for automatic fallback when local extraction fails.
+/// Cloud API client for explicit cloud requests and approved automatic fallback.
 ///
-/// When ECLIPSE_CLAW_API_KEY is set (or --api-key is passed), the CLI can fall back
-/// to api.webclaw.io for bot-protected or JS-rendered sites. With --cloud flag,
-/// all requests go through the cloud API directly.
+/// ECLIPSE_CLAW_API_KEY (or --api-key) authenticates the client. Automatic fallback
+/// also requires --cloud-fallback or ECLIPSE_CLAW_CLOUD_FALLBACK=1. With --cloud,
+/// the user explicitly routes all requests through the cloud API.
 ///
 /// NOTE: The canonical, full-featured cloud module lives in eclipse-claw-mcp/src/cloud.rs
 /// (smart_fetch, bot detection, JS rendering checks). This is the minimal subset

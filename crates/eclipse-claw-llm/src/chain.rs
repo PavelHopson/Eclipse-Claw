@@ -7,9 +7,7 @@ use tracing::{debug, warn};
 use crate::error::LlmError;
 use crate::provider::{CompletionRequest, LlmProvider};
 use crate::providers::{
-    anthropic::AnthropicProvider,
-    deepseek::DeepSeekProvider,
-    ollama::OllamaProvider,
+    anthropic::AnthropicProvider, deepseek::DeepSeekProvider, ollama::OllamaProvider,
     openai::OpenAiProvider,
 };
 

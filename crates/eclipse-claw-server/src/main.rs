@@ -44,7 +44,5 @@ async fn main() {
         .await
         .unwrap_or_else(|e| panic!("failed to bind {}: {e}", args.addr));
 
-    axum::serve(listener, app)
-        .await
-        .expect("server error");
+    axum::serve(listener, app).await.expect("server error");
 }

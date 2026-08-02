@@ -27,6 +27,5 @@ pub mod tokens;
 pub use client::{CdpClient, CdpConfig};
 pub use error::CdpError;
 pub use tokens::{
-    ColorEntry, ColorTokens, CssVariable, DesignTokens, FontFamily, SpacingTokens,
-    TypographyTokens,
+    ColorEntry, ColorTokens, CssVariable, DesignTokens, FontFamily, SpacingTokens, TypographyTokens,
 };

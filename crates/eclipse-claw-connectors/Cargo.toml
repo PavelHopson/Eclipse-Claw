@@ -1,0 +1,12 @@
+[package]
+name = "eclipse-claw-connectors"
+description = "Static connector registry and read-only capability diagnostics for eclipse-claw"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

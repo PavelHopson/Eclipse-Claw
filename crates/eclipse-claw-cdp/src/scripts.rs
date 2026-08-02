@@ -1,5 +1,5 @@
-/// JavaScript snippets executed via CDP to extract design tokens.
-/// Each function returns a JSON string that is parsed on the Rust side.
+//! JavaScript snippets executed via CDP to extract design tokens.
+//! Each function returns a JSON string that is parsed on the Rust side.
 
 /// Extract all design tokens in one pass.
 /// Returns a JSON object matching the DesignTokens structure (partial — Rust fills url/title).

@@ -150,7 +150,7 @@ Crawling... 50/50 pages extracted
 
 ---
 
-## MCP-сервер — 10 инструментов для AI-агентов
+## MCP-сервер — 11 инструментов для AI-агентов
 
 Eclipse Claw работает как MCP-сервер для Claude Desktop, Claude Code, Cursor, Windsurf, OpenCode и любого MCP-совместимого клиента.
 
@@ -184,8 +184,12 @@ npx create-eclipse-claw    # автоопределение и настройк�
 | `brand` | Извлечение айдентики бренда | Нет |
 | `search` | Веб-поиск + скрапинг результатов | Да |
 | `research` | Глубокое исследование из нескольких источников | Да |
+| `doctor` | Показывает доступные connectors, data boundary и порядок fallback без сетевых проверок и чтения секретов | Нет |
 
-**8 из 10 инструментов работают локально** — без аккаунта, без API-ключа, полностью приватно.
+**9 из 11 инструментов могут работать без Eclipse Cloud.** Перед исследованием вызовите
+`doctor`: он простыми словами покажет, какой connector готов, куда могут уйти данные и почему
+fallback отключён. Команда не проверяет credentials по сети, не открывает browser profile и
+не устанавливает сторонние программы.
 
 ---
 
@@ -385,7 +389,7 @@ eclipse-claw/
     eclipse-claw-llm      Цепочка LLM-провайдеров (Ollama -> DeepSeek -> OpenAI -> Anthropic)
     eclipse-claw-pdf      Извлечение текста из PDF
     eclipse-claw-server   REST API сервер (Axum) — /extract, /summarise, /batch
-    eclipse-claw-mcp      MCP-сервер (10 инструментов для AI-агентов)
+    eclipse-claw-mcp      MCP-сервер (11 инструментов для AI-агентов + read-only doctor)
     eclipse-claw-cli      CLI-утилита
 ```
 
@@ -398,6 +402,7 @@ eclipse-claw/
 | Переменная | Описание |
 |-----------|---------|
 | `ECLIPSE_CLAW_API_KEY` | API-ключ облака (обход ботов, JS-рендеринг, поиск, исследования) |
+| `ECLIPSE_CLAW_CLOUD_FALLBACK` | Явное согласие на автоматический local → cloud fallback (`1` включает; по умолчанию выключено) |
 | `OLLAMA_HOST` | URL Ollama для локальных LLM-функций (по умолчанию: `http://localhost:11434`) |
 | `DEEPSEEK_API_KEY` | API-ключ DeepSeek — первый облачный провайдер в цепочке (дешевле GPT-4o) |
 | `OPENAI_API_KEY` | API-ключ OpenAI для LLM-функций |
@@ -413,20 +418,30 @@ eclipse-claw/
 
 Для сайтов с защитой от ботов, JS-рендерингом и продвинутыми функциями доступен облачный API.
 
-CLI и MCP-сервер работают локально. Облако используется как фолбэк, когда:
+CLI и MCP-сервер сначала работают локально. Наличие API key само по себе **не разрешает**
+автоматическую передачу URL и контента в cloud. Облако используется как фолбэк, только когда
+пользователь отдельно включил `--cloud-fallback` или `ECLIPSE_CLAW_CLOUD_FALLBACK=1`, а локальный
+ответ показывает одну из этих проблем:
 - Сайт имеет защиту от ботов (Cloudflare, DataDome, WAF)
 - Страница требует JavaScript-рендеринг
-- Вы используете инструменты поиска или исследования
+
+`search`, `research` и `--cloud` — отдельные явные cloud-действия. Для них нужен API key,
+но дополнительный fallback-флаг не нужен.
 
 ```bash
 export ECLIPSE_CLAW_API_KEY=wc_your_key
+export ECLIPSE_CLAW_CLOUD_FALLBACK=1
 
-# Автоматически: сначала локально, облако при обнаружении защиты
-eclipse-claw https://protected-site.com
+# Явно разрешённый fallback: сначала локально, затем cloud при обнаружении защиты
+eclipse-claw --cloud-fallback https://protected-site.com
 
 # Принудительно через облако
 eclipse-claw --cloud https://spa-site.com
 ```
+
+Для server-side диагностики доступны `GET /connectors` и `GET /connectors/doctor`. Они
+возвращают статический allowlist, readiness, provenance и безопасный следующий шаг, не
+показывая значения ключей и не выполняя network probes.
 
 ### SDK
 
@@ -494,6 +509,8 @@ eclipse-claw --telegram --user 123456789 --info
 
 ### Другие планы
 
+- [x] Allowlisted connector registry + read-only `doctor` для REST/MCP; automatic cloud fallback
+      требует отдельного opt-in и никогда не включается только из-за сохранённого API key
 - [ ] CSS selector фильтрация (`--select "article.main"`)
 - [ ] Sitemap-first crawl mode
 - [ ] Webhook уведомления при обнаружении изменений

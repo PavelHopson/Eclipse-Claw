@@ -1075,6 +1075,7 @@ dependencies = [
  "clap",
  "dotenvy",
  "eclipse-claw-cdp",
+ "eclipse-claw-connectors",
  "eclipse-claw-core",
  "eclipse-claw-fetch",
  "eclipse-claw-llm",
@@ -1087,6 +1088,14 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
+]
+
+[[package]]
+name = "eclipse-claw-connectors"
+version = "0.3.9"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1148,6 +1157,7 @@ version = "0.3.9"
 dependencies = [
  "dirs",
  "dotenvy",
+ "eclipse-claw-connectors",
  "eclipse-claw-core",
  "eclipse-claw-fetch",
  "eclipse-claw-llm",
@@ -1180,6 +1190,7 @@ dependencies = [
  "clap",
  "dotenvy",
  "eclipse-claw-cdp",
+ "eclipse-claw-connectors",
  "eclipse-claw-core",
  "eclipse-claw-fetch",
  "eclipse-claw-llm",

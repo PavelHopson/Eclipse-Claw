@@ -106,9 +106,7 @@ pub async fn extract_url(
 }
 
 /// `POST /extract/html` — parse raw HTML inline.
-pub async fn extract_html(
-    Json(req): Json<ExtractHtmlRequest>,
-) -> Result<Json<Value>, ApiError> {
+pub async fn extract_html(Json(req): Json<ExtractHtmlRequest>) -> Result<Json<Value>, ApiError> {
     if req.html.is_empty() {
         return Err(ApiError::BadRequest("html is required".into()));
     }
@@ -120,12 +118,8 @@ pub async fn extract_html(
         include_raw_html: req.include_raw_html,
     };
 
-    let result = eclipse_claw_core::extract_with_options(
-        &req.html,
-        req.url.as_deref(),
-        &options,
-    )
-    .map_err(ApiError::from)?;
+    let result = eclipse_claw_core::extract_with_options(&req.html, req.url.as_deref(), &options)
+        .map_err(ApiError::from)?;
 
     Ok(Json(json!({ "ok": true, "data": result })))
 }
@@ -153,17 +147,14 @@ pub async fn summarise_url(
         .map_err(ApiError::from)?;
 
     let markdown = &extracted.content.markdown;
-    let title = extracted
-        .metadata
-        .title
-        .as_deref()
-        .unwrap_or("(no title)");
+    let title = extracted.metadata.title.as_deref().unwrap_or("(no title)");
 
     // Step 2: build LLM request
     let system = req.system_prompt.unwrap_or_else(|| {
         "You are a concise content summariser. Given a web page's markdown content, \
          produce a clear, structured summary in 3-5 bullet points. Focus on key facts, \
-         avoid filler language.".into()
+         avoid filler language."
+            .into()
     });
 
     let user_message = format!(
@@ -174,8 +165,14 @@ pub async fn summarise_url(
     let llm_req = CompletionRequest {
         model: req.model,
         messages: vec![
-            Message { role: "system".into(), content: system },
-            Message { role: "user".into(), content: user_message },
+            Message {
+                role: "system".into(),
+                content: system,
+            },
+            Message {
+                role: "user".into(),
+                content: user_message,
+            },
         ],
         temperature: None,
         max_tokens: req.max_tokens,
@@ -206,7 +203,9 @@ pub async fn batch_extract(
     Json(req): Json<BatchRequest>,
 ) -> Result<Json<Value>, ApiError> {
     if req.urls.is_empty() {
-        return Err(ApiError::BadRequest("urls array is required and must not be empty".into()));
+        return Err(ApiError::BadRequest(
+            "urls array is required and must not be empty".into(),
+        ));
     }
     if req.urls.len() > 50 {
         return Err(ApiError::BadRequest("maximum 50 URLs per batch".into()));
@@ -300,14 +299,41 @@ pub async fn health() -> Json<Value> {
     Json(json!({ "ok": true, "service": "eclipse-claw-server" }))
 }
 
+/// `GET /connectors` — list the static allowlisted connector registry.
+pub async fn connectors(State(state): State<AppState>) -> Json<Value> {
+    Json(connectors_payload(state.doctor.as_ref()))
+}
+
+fn connectors_payload(report: &eclipse_claw_connectors::DoctorReport) -> Value {
+    json!({
+        "ok": true,
+        "data": {
+            "schema_version": report.schema_version,
+            "connectors": &report.connectors,
+        }
+    })
+}
+
+/// `GET /connectors/doctor` — return a read-only capability and fallback report.
+///
+/// This endpoint performs no network probes, never validates credentials, and
+/// never opens a browser profile. It only returns startup readiness booleans.
+pub async fn connector_doctor(State(state): State<AppState>) -> Json<Value> {
+    Json(doctor_payload(state.doctor.as_ref()))
+}
+
+fn doctor_payload(report: &eclipse_claw_connectors::DoctorReport) -> Value {
+    json!({ "ok": true, "data": report })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::Router;
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
     use axum::response::IntoResponse;
     use axum::routing::{get, post};
-    use axum::Router;
     use http_body_util::BodyExt;
     use tower::ServiceExt;
 
@@ -432,5 +458,31 @@ mod tests {
         assert_eq!(json["ok"], false);
         assert_eq!(json["error"]["code"], "bad_request");
         assert!(json["error"]["message"].as_str().unwrap().contains("test"));
+    }
+
+    #[test]
+    fn connector_payloads_are_read_only_and_hide_credentials() {
+        let report = eclipse_claw_connectors::DoctorReport::from_signals(
+            eclipse_claw_connectors::RuntimeSignals {
+                local_fetch_ready: true,
+                local_llm_ready: true,
+                cloud_key_present: true,
+                cloud_fallback_enabled: false,
+            },
+        );
+
+        let registry = connectors_payload(&report);
+        assert_eq!(registry["data"]["schema_version"], "1");
+        assert_eq!(registry["data"]["connectors"].as_array().unwrap().len(), 3);
+
+        let doctor = doctor_payload(&report);
+        assert_eq!(
+            doctor["data"]["fallback"]["automatic_cloud_fallback"],
+            false
+        );
+        assert_eq!(doctor["data"]["safety"]["network_probe_performed"], false);
+        let serialized = serde_json::to_string(&doctor).unwrap();
+        assert!(!serialized.contains("api_key"));
+        assert!(!serialized.contains("token"));
     }
 }

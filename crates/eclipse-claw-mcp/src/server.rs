@@ -3,7 +3,8 @@
 ///
 /// Uses a local-first architecture: fetches pages directly, then falls back
 /// to the eclipse-claw cloud API (api.webclaw.io) when bot protection or
-/// JS rendering is detected. Set ECLIPSE_CLAW_API_KEY for automatic fallback.
+/// JS rendering is detected. Automatic cloud transfer is fail-closed unless
+/// ECLIPSE_CLAW_CLOUD_FALLBACK=1 is explicitly configured.
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -15,6 +16,8 @@ use serde_json::json;
 use tracing::{error, info, warn};
 use url::Url;
 
+use eclipse_claw_connectors::{DoctorReport, RuntimeSignals};
+
 use crate::cloud::{self, CloudClient, SmartFetchResult};
 use crate::tools::*;
 
@@ -23,6 +26,8 @@ pub struct EclipseClawMcp {
     fetch_client: Arc<eclipse_claw_fetch::FetchClient>,
     llm_chain: Option<eclipse_claw_llm::ProviderChain>,
     cloud: Option<CloudClient>,
+    automatic_cloud_fallback: bool,
+    doctor_report: DoctorReport,
 }
 
 /// Parse a browser string into a BrowserProfile.
@@ -97,28 +102,51 @@ impl EclipseClawMcp {
         };
 
         let cloud = CloudClient::from_env();
-        if cloud.is_some() {
-            info!("cloud API fallback enabled (ECLIPSE_CLAW_API_KEY set)");
+        let automatic_cloud_fallback = eclipse_claw_connectors::automatic_cloud_fallback_allowed(
+            cloud.is_some(),
+            eclipse_claw_connectors::cloud_fallback_enabled(),
+        );
+        if automatic_cloud_fallback {
+            info!("cloud API fallback explicitly enabled");
+        } else if cloud.is_some() {
+            info!(
+                "cloud API key is available for explicit search/research tools; automatic fallback is disabled"
+            );
         } else {
             warn!(
-                "ECLIPSE_CLAW_API_KEY not set -- bot-protected sites will return challenge pages. \
-                 Get a key at https://webclaw.io"
+                "ECLIPSE_CLAW_API_KEY not set -- explicit cloud tools are unavailable and automatic fallback stays disabled"
             );
         }
+
+        let doctor_report = DoctorReport::from_signals(RuntimeSignals {
+            local_fetch_ready: true,
+            local_llm_ready: llm_chain.is_some(),
+            cloud_key_present: cloud.is_some(),
+            cloud_fallback_enabled: automatic_cloud_fallback,
+        });
 
         Self {
             tool_router: Self::tool_router(),
             fetch_client: Arc::new(fetch_client),
             llm_chain,
             cloud,
+            automatic_cloud_fallback,
+            doctor_report,
         }
+    }
+
+    /// Return the cloud client only when automatic data transfer has explicit consent.
+    fn automatic_cloud(&self) -> Option<&CloudClient> {
+        self.automatic_cloud_fallback
+            .then_some(self.cloud.as_ref())
+            .flatten()
     }
 
     /// Helper: smart fetch with LLM format for extract/summarize tools.
     async fn smart_fetch_llm(&self, url: &str) -> Result<SmartFetchResult, String> {
         cloud::smart_fetch(
             &self.fetch_client,
-            self.cloud.as_ref(),
+            self.automatic_cloud(),
             url,
             &[],
             &[],
@@ -129,7 +157,8 @@ impl EclipseClawMcp {
     }
 
     /// Scrape a single URL and extract its content as markdown, LLM-optimized text, plain text, or full JSON.
-    /// Automatically falls back to the eclipse-claw cloud API when bot protection or JS rendering is detected.
+    /// Can fall back to the eclipse-claw cloud API when bot protection or JS rendering is detected
+    /// and automatic cloud transfer was explicitly enabled.
     #[tool]
     async fn scrape(&self, Parameters(params): Parameters<ScrapeParams>) -> Result<String, String> {
         validate_url(&params.url)?;
@@ -171,7 +200,7 @@ impl EclipseClawMcp {
         let formats = [format];
         let result = cloud::smart_fetch(
             client,
-            self.cloud.as_ref(),
+            self.automatic_cloud(),
             &params.url,
             &include,
             &exclude,
@@ -333,8 +362,8 @@ impl EclipseClawMcp {
 
         // No local LLM — fall back to cloud API directly
         if self.llm_chain.is_none() {
-            let cloud = self.cloud.as_ref().ok_or(
-                "No LLM providers available. Set OPENAI_API_KEY, ANTHROPIC_API_KEY, or ECLIPSE_CLAW_API_KEY for cloud fallback.",
+            let cloud = self.automatic_cloud().ok_or(
+                "No local LLM provider is available. Configure a supported provider, or explicitly enable cloud transfer with ECLIPSE_CLAW_CLOUD_FALLBACK=1.",
             )?;
             let mut body = json!({"url": params.url});
             if let Some(ref schema) = params.schema {
@@ -386,8 +415,8 @@ impl EclipseClawMcp {
 
         // No local LLM — fall back to cloud API directly
         if self.llm_chain.is_none() {
-            let cloud = self.cloud.as_ref().ok_or(
-                "No LLM providers available. Set OPENAI_API_KEY, ANTHROPIC_API_KEY, or ECLIPSE_CLAW_API_KEY for cloud fallback.",
+            let cloud = self.automatic_cloud().ok_or(
+                "No local LLM provider is available. Configure a supported provider, or explicitly enable cloud transfer with ECLIPSE_CLAW_CLOUD_FALLBACK=1.",
             )?;
             let mut body = json!({"url": params.url});
             if let Some(sentences) = params.max_sentences {
@@ -421,7 +450,8 @@ impl EclipseClawMcp {
     }
 
     /// Compare the current content of a URL against a previous extraction snapshot, showing what changed.
-    /// Automatically falls back to the eclipse-claw cloud API when bot protection is detected.
+    /// Can fall back to the eclipse-claw cloud API when bot protection is detected
+    /// and automatic cloud transfer was explicitly enabled.
     #[tool]
     async fn diff(&self, Parameters(params): Parameters<DiffParams>) -> Result<String, String> {
         validate_url(&params.url)?;
@@ -431,7 +461,7 @@ impl EclipseClawMcp {
 
         let result = cloud::smart_fetch(
             &self.fetch_client,
-            self.cloud.as_ref(),
+            self.automatic_cloud(),
             &params.url,
             &[],
             &[],
@@ -489,7 +519,8 @@ impl EclipseClawMcp {
     }
 
     /// Extract brand identity (colors, fonts, logo, favicon) from a website's HTML and CSS.
-    /// Automatically falls back to the eclipse-claw cloud API when bot protection is detected.
+    /// Can fall back to the eclipse-claw cloud API when bot protection is detected
+    /// and automatic cloud transfer was explicitly enabled.
     #[tool]
     async fn brand(&self, Parameters(params): Parameters<BrandParams>) -> Result<String, String> {
         validate_url(&params.url)?;
@@ -501,15 +532,15 @@ impl EclipseClawMcp {
 
         // Check for bot protection before extracting brand
         if cloud::is_bot_protected(&fetch_result.html, &fetch_result.headers) {
-            if let Some(ref c) = self.cloud {
+            if let Some(c) = self.automatic_cloud() {
                 let resp = c
                     .post("brand", serde_json::json!({"url": params.url}))
                     .await?;
                 return Ok(serde_json::to_string_pretty(&resp).unwrap_or_default());
             } else {
                 return Err(format!(
-                    "Bot protection detected on {}. Set ECLIPSE_CLAW_API_KEY for automatic cloud bypass. \
-                     Get a key at https://webclaw.io",
+                    "Bot protection detected on {}. Automatic cloud transfer is disabled. \
+                     Set ECLIPSE_CLAW_CLOUD_FALLBACK=1 only after approving the cloud data boundary.",
                     params.url
                 ));
             }
@@ -667,6 +698,14 @@ impl EclipseClawMcp {
             Ok(serde_json::to_string_pretty(&resp).unwrap_or_default())
         }
     }
+
+    /// Show the allowlisted connector registry, readiness and fallback policy.
+    /// Performs no network probe, credential validation, browser access or installation.
+    #[tool]
+    async fn doctor(&self) -> Result<String, String> {
+        serde_json::to_string_pretty(&self.doctor_report)
+            .map_err(|error| format!("Failed to serialize connector report: {error}"))
+    }
 }
 
 #[tool_handler]
@@ -676,7 +715,8 @@ impl ServerHandler for EclipseClawMcp {
             .with_server_info(Implementation::new("eclipse-claw-mcp", env!("CARGO_PKG_VERSION")))
             .with_instructions(String::from(
                 "Eclipse Claw MCP server -- web content extraction for AI agents. \
-                 Tools: scrape, crawl, map, batch, extract, summarize, diff, brand, research, search.",
+                 Tools: scrape, crawl, map, batch, extract, summarize, diff, brand, research, search, doctor. \
+                 Run doctor before a research workflow to see which data boundaries are enabled.",
             ))
     }
 }

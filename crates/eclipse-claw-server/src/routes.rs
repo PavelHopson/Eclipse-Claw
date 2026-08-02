@@ -1,4 +1,7 @@
-use axum::{Router, routing::{get, post}};
+use axum::{
+    Router,
+    routing::{get, post},
+};
 use tower_http::{
     cors::{Any, CorsLayer},
     limit::RequestBodyLimitLayer,
@@ -16,6 +19,8 @@ pub fn build(state: AppState, body_limit: usize) -> Router {
 
     Router::new()
         .route("/health", get(handlers::health))
+        .route("/connectors", get(handlers::connectors))
+        .route("/connectors/doctor", get(handlers::connector_doctor))
         .route("/extract", post(handlers::extract_url))
         .route("/extract/html", post(handlers::extract_html))
         .route("/summarise", post(handlers::summarise_url))
