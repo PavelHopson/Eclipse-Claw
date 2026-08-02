@@ -16,7 +16,7 @@ Thanks for your interest in contributing. This document covers the essentials.
    cargo build --release
    ```
 
-   RUSTFLAGS are configured in `.cargo/config.toml` -- no manual flags needed.
+   CI and release workflows set the required `reqwest_unstable` cfg explicitly.
 
 3. Optional: run `./setup.sh` for environment bootstrapping.
 
@@ -40,7 +40,8 @@ Both must pass cleanly before submitting a PR.
 
 - Rust edition 2024, formatted with `rustfmt` (see `rustfmt.toml`, `style_edition = "2024"`)
 - `eclipse-claw-core` has zero network dependencies -- keep it WASM-safe
-- `eclipse-claw-llm` uses plain `reqwest` — LLM APIs don't need TLS fingerprinting
+- `eclipse-claw-llm` uses plain `reqwest`; production REST reaches providers only through an
+  authenticated worker, while direct providers remain inside the isolated worker and trusted CLI
 - Prefer returning `Result` over panicking. No `.unwrap()` on untrusted input.
 - Doc comments on all public items. Explain *why*, not *what*.
 
@@ -102,10 +103,11 @@ eclipse-claw (this repo)
 │   ├── eclipse-claw-server/  # Authenticated REST API
 │   └── eclipse-claw-worker/  # Isolated authenticated LLM/CDP worker
 │
-└── [patch.crates-io]    # Points to eclipse-claw-tls for TLS fingerprinting
+└── benchmarks/          # Pinned public-page and hostile-content regression fixtures
 ```
 
-TLS fingerprinting lives in a separate repo: [eclipse-claw-tls](https://github.com/PavelHopson/eclipse-claw-tls). The `[patch.crates-io]` section in `Cargo.toml` overrides rustls, h2, hyper, hyper-util, and reqwest with our patched forks for browser-grade JA4 + HTTP/2 Akamai fingerprinting.
+HTTP fetching uses the locked `wreq`/BoringSSL dependency chain. There is no workspace
+`[patch.crates-io]` override. Dependency changes must update `Cargo.lock` and pass the RustSec job.
 
 ## Crate Boundaries
 
@@ -114,7 +116,7 @@ Changes that cross crate boundaries need extra care:
 | Crate | Network? | Key constraint |
 |-------|----------|----------------|
 | eclipse-claw-core | No | Zero network deps, WASM-safe |
-| eclipse-claw-fetch | Yes (eclipse-claw-http) | Uses [eclipse-claw-tls](https://github.com/PavelHopson/eclipse-claw-tls) for TLS fingerprinting |
+| eclipse-claw-fetch | Yes (wreq/BoringSSL) | Public-only resolver, redirect revalidation and bounded bodies |
 | eclipse-claw-llm | Yes (reqwest) | Plain reqwest — LLM APIs don't need TLS fingerprinting |
 | eclipse-claw-pdf | No | Minimal, wraps pdf-extract |
 | eclipse-claw-cli | Yes | Depends on all above |

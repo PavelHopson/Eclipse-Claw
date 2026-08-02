@@ -49,22 +49,17 @@ npx create-eclipse-claw
 
 Автоматически определяет ваши AI-инструменты, скачивает MCP-сервер и настраивает всё. Одна команда.
 
-### Homebrew (macOS/Linux)
+### Проверенные готовые бинарники
 
-```bash
-brew tap PavelHopson/eclipse-claw
-brew install eclipse-claw
-```
-
-### Готовые бинарники
-
-Скачайте из [GitHub Releases](https://github.com/PavelHopson/Eclipse-Claw/releases) для macOS (arm64, x86_64) и Linux (x86_64, aarch64).
+Скачайте архив для macOS (arm64, x86_64) или Linux (x86_64, aarch64) из
+[GitHub Releases](https://github.com/PavelHopson/Eclipse-Claw/releases). Перед запуском
+сверьте SHA-256 архива с опубликованным `SHA256SUMS`. Публичный Homebrew tap пока не выпущен.
 
 ### Cargo (из исходников)
 
 ```bash
-cargo install --git https://github.com/PavelHopson/Eclipse-Claw.git eclipse-claw-cli
-cargo install --git https://github.com/PavelHopson/Eclipse-Claw.git eclipse-claw-mcp
+cargo install --locked --git https://github.com/PavelHopson/Eclipse-Claw.git --tag v0.4.1 eclipse-claw-cli
+cargo install --locked --git https://github.com/PavelHopson/Eclipse-Claw.git --tag v0.4.1 eclipse-claw-mcp
 ```
 
 ### Docker

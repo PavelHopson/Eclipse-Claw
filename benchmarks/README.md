@@ -10,7 +10,7 @@ is to detect extraction and prompt-boundary regressions without downloading live
 - a stable fixture ID and page kind;
 - the public HTTPS source used as a structural reference;
 - the capture date;
-- the exact SHA-256 of the local HTML file.
+- the SHA-256 of the local UTF-8 HTML after normalizing line endings to LF.
 
 The HTML is intentionally minimal and contains no account data, session state, tracking IDs, or
 third-party executable code. Fixtures cover an article, documentation, a product page and an SPA
