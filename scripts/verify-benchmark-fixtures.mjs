@@ -18,8 +18,9 @@ for (const item of manifest.cases) {
   if (!/^https:\/\//.test(item.source_url)) throw new Error(`${item.id}: source_url must use https`);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(item.captured_at)) throw new Error(`${item.id}: invalid captured_at`);
   if (!/^[a-f0-9]{64}$/.test(item.sha256)) throw new Error(`${item.id}: invalid sha256`);
-  const bytes = await readFile(path.join(directory, item.fixture));
-  const actual = createHash('sha256').update(bytes).digest('hex');
+  const text = await readFile(path.join(directory, item.fixture), 'utf8');
+  const normalized = text.replace(/\r\n?/g, '\n');
+  const actual = createHash('sha256').update(normalized, 'utf8').digest('hex');
   if (actual !== item.sha256) throw new Error(`${item.id}: fixture checksum mismatch`);
 }
 

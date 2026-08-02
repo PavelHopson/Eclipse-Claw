@@ -5,6 +5,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.4.1] — 2026-08-02
+
+### Fixed
+- Release documentation no longer advertises a Homebrew tap that is not publicly available.
+- The optional Homebrew publish stage now skips cleanly when its dedicated tap token is absent,
+  while still failing if an explicitly configured tap cannot be updated.
+- Source installation examples are pinned to the release tag and use the committed lockfile.
+- Contributor architecture notes now match the current `wreq`/BoringSSL dependency chain and
+  isolated-provider boundary.
+
 ## [0.4.0] — 2026-08-02
 
 ### Added

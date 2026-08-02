@@ -212,17 +212,28 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: Require tap token
+      - name: Detect optional tap configuration
+        id: tap-config
         env:
           TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-        run: test -n "$TAP_TOKEN"
+        shell: bash
+        run: |
+          if [ -n "$TAP_TOKEN" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::HOMEBREW_TAP_TOKEN is not configured; skipping optional tap update."
+          fi
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        if: steps.tap-config.outputs.enabled == 'true'
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        if: steps.tap-config.outputs.enabled == 'true'
         with:
           repository: PavelHopson/homebrew-eclipse-claw
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           path: tap
       - name: Download release archives and update formula
+        if: steps.tap-config.outputs.enabled == 'true'
         shell: bash
         run: |
           base="https://github.com/PavelHopson/eclipse-claw/releases/download/${GITHUB_REF_NAME}"
@@ -246,6 +257,7 @@ jobs:
             -e "s|@@SHA_LINUX_X86@@|${sha_linux_x86}|g" \
             .github/homebrew/eclipse-claw.rb.tmpl > tap/Formula/eclipse-claw.rb
       - name: Commit formula
+        if: steps.tap-config.outputs.enabled == 'true'
         working-directory: tap
         run: |
           git config user.name "github-actions[bot]"

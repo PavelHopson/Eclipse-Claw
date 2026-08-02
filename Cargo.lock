@@ -925,7 +925,7 @@ dependencies = [
 
 [[package]]
 name = "eclipse-claw-audit"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -934,7 +934,7 @@ dependencies = [
 
 [[package]]
 name = "eclipse-claw-cdp"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "chromiumoxide",
  "eclipse-claw-core",
@@ -949,7 +949,7 @@ dependencies = [
 
 [[package]]
 name = "eclipse-claw-cli"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "clap",
  "dotenvy",
@@ -971,7 +971,7 @@ dependencies = [
 
 [[package]]
 name = "eclipse-claw-connectors"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -979,7 +979,7 @@ dependencies = [
 
 [[package]]
 name = "eclipse-claw-core"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "ego-tree",
  "once_cell",
@@ -997,7 +997,7 @@ dependencies = [
 
 [[package]]
 name = "eclipse-claw-fetch"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "bytes",
  "calamine",
@@ -1019,7 +1019,7 @@ dependencies = [
 
 [[package]]
 name = "eclipse-claw-llm"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "async-trait",
  "reqwest 0.12.28",
@@ -1032,7 +1032,7 @@ dependencies = [
 
 [[package]]
 name = "eclipse-claw-mcp"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "dirs",
  "dotenvy",
@@ -1055,7 +1055,7 @@ dependencies = [
 
 [[package]]
 name = "eclipse-claw-pdf"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "pdf-extract",
  "thiserror",
@@ -1064,7 +1064,7 @@ dependencies = [
 
 [[package]]
 name = "eclipse-claw-server"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "axum",
  "clap",
@@ -1090,7 +1090,7 @@ dependencies = [
 
 [[package]]
 name = "eclipse-claw-worker"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "axum",
  "clap",
