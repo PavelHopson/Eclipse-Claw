@@ -427,7 +427,7 @@ fn extract_colors(decls: &[CssDecl]) -> Vec<BrandColor> {
         .collect();
 
     // Sort by frequency (descending)
-    colors.sort_by(|a, b| b.count.cmp(&a.count));
+    colors.sort_by_key(|color| std::cmp::Reverse(color.count));
 
     // Promote top non-white/black to Primary/Secondary if they're still Unknown
     let mut assigned_primary = colors.iter().any(|c| c.usage == ColorUsage::Primary);
@@ -599,7 +599,7 @@ fn extract_fonts(decls: &[CssDecl]) -> Vec<String> {
             // font shorthand: the font-family is the last part after the size.
             // Heuristic: take everything after a `/` or after `px`/`em`/`rem`/`%` + space
             FONT_FAMILY
-                .captures(&format!("font-family: {}", &decl.value))
+                .captures(&format!("font-family: {}", decl.value))
                 .map(|c| c[1].to_string())
                 .unwrap_or_else(|| decl.value.clone())
         } else {
@@ -615,7 +615,7 @@ fn extract_fonts(decls: &[CssDecl]) -> Vec<String> {
     }
 
     let mut fonts: Vec<(String, usize)> = freq.into_iter().collect();
-    fonts.sort_by(|a, b| b.1.cmp(&a.1));
+    fonts.sort_by_key(|font| std::cmp::Reverse(font.1));
     fonts.into_iter().map(|(name, _)| name).collect()
 }
 
