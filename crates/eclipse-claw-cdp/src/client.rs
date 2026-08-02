@@ -5,7 +5,7 @@
 /// headless Chrome process.
 use std::time::Duration;
 
-use chromiumoxide::{Browser, BrowserConfig, Page};
+use chromiumoxide::{Browser, BrowserConfig};
 use futures::StreamExt;
 use tracing::{debug, info, instrument};
 
@@ -88,11 +88,9 @@ impl CdpClient {
         info!("launching chrome for design token extraction");
 
         let (browser, mut handler) = match &self.config.chrome_ws {
-            Some(ws) => {
-                Browser::connect(ws)
-                    .await
-                    .map_err(|e| CdpError::Launch(e.to_string()))?
-            }
+            Some(ws) => Browser::connect(ws)
+                .await
+                .map_err(|e| CdpError::Launch(e.to_string()))?,
             None => {
                 let config = BrowserConfig::builder()
                     .no_sandbox()
@@ -107,9 +105,7 @@ impl CdpClient {
         };
 
         // Drive the browser event loop in the background
-        let _driver = tokio::spawn(async move {
-            while let Some(_) = handler.next().await {}
-        });
+        let _driver = tokio::spawn(async move { while handler.next().await.is_some() {} });
 
         let page = browser
             .new_page(url)
@@ -117,7 +113,10 @@ impl CdpClient {
             .map_err(|e| CdpError::Navigation(e.to_string()))?;
 
         // Wait for network idle + hydration
-        debug!(wait_ms = self.config.hydration_wait_ms, "waiting for hydration");
+        debug!(
+            wait_ms = self.config.hydration_wait_ms,
+            "waiting for hydration"
+        );
         tokio::time::sleep(Duration::from_millis(self.config.hydration_wait_ms)).await;
 
         // Extract page metadata
