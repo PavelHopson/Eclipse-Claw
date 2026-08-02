@@ -80,7 +80,11 @@ impl LlmProvider for DeepSeekProvider {
         if !resp.status().is_success() {
             let status = resp.status();
             let text = resp.text().await.unwrap_or_default();
-            let safe_text = if text.len() > 500 { &text[..500] } else { &text };
+            let safe_text = if text.len() > 500 {
+                &text[..500]
+            } else {
+                &text
+            };
             return Err(LlmError::ProviderError(format!(
                 "deepseek returned {status}: {safe_text}"
             )));
@@ -121,22 +125,18 @@ mod tests {
 
     #[test]
     fn explicit_key_constructs() {
-        let provider = DeepSeekProvider::new(
-            Some("sk-test-key".into()),
-            Some("deepseek-chat".into()),
-        )
-        .expect("should construct");
+        let provider =
+            DeepSeekProvider::new(Some("sk-test-key".into()), Some("deepseek-chat".into()))
+                .expect("should construct");
         assert_eq!(provider.name(), "deepseek");
         assert_eq!(provider.default_model(), "deepseek-chat");
     }
 
     #[test]
     fn reasoner_model_constructs() {
-        let provider = DeepSeekProvider::new(
-            Some("sk-test-key".into()),
-            Some("deepseek-reasoner".into()),
-        )
-        .unwrap();
+        let provider =
+            DeepSeekProvider::new(Some("sk-test-key".into()), Some("deepseek-reasoner".into()))
+                .unwrap();
         assert_eq!(provider.default_model(), "deepseek-reasoner");
     }
 
