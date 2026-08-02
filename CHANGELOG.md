@@ -48,6 +48,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   rather than by a separate preflight lookup that could be bypassed with DNS rebinding.
 - Browser navigation receives a DNS preflight and remains explicit opt-in because Chromium owns
   its connection and cannot share the HTTP transport's resolver.
+- RustSec-reported vulnerabilities in the PDF, XML, QUIC, TLS, MCP and random-number dependency
+  chains were removed by upgrading the affected crates; the obsolete `async-std` browser runtime
+  chain was removed instead of allowlisting its advisories.
 - Container examples run as a non-root user with read-only filesystems, dropped capabilities,
   resource bounds and separate internal/egress networks. Browser sandbox disable is restricted to
   the isolated capability-dropped CDP container.

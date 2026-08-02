@@ -245,7 +245,7 @@ fn parse_urlset(xml: &str) -> Vec<SitemapEntry> {
             }
             Ok(Event::Text(ref e)) => {
                 if let Some(ref tag) = current_tag
-                    && let Ok(text) = e.unescape()
+                    && let Some(text) = decode_xml_text(e)
                 {
                     let text = text.trim().to_string();
                     if !text.is_empty() {
@@ -314,7 +314,7 @@ fn parse_sitemap_index(xml: &str) -> Vec<String> {
                 }
             }
             Ok(Event::Text(ref e)) => {
-                if in_loc && let Ok(text) = e.unescape() {
+                if in_loc && let Some(text) = decode_xml_text(e) {
                     let text = text.trim().to_string();
                     if !text.is_empty() {
                         urls.push(text);
@@ -343,6 +343,13 @@ fn parse_sitemap_index(xml: &str) -> Vec<String> {
     }
 
     urls
+}
+
+fn decode_xml_text(text: &quick_xml::events::BytesText<'_>) -> Option<String> {
+    let decoded = text.decode().ok()?;
+    quick_xml::escape::unescape(&decoded)
+        .ok()
+        .map(|value| value.into_owned())
 }
 
 // ---------------------------------------------------------------------------

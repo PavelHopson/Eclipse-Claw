@@ -10,7 +10,6 @@ use std::time::Duration;
 
 use eclipse_claw_connectors::{DoctorReport, RuntimeSignals};
 use eclipse_claw_fetch::NetworkPolicy;
-use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{Implementation, ServerCapabilities, ServerInfo};
 use rmcp::{ServerHandler, tool, tool_handler, tool_router};
@@ -21,7 +20,6 @@ use crate::cloud::{self, CloudClient, SmartFetchResult};
 use crate::tools::*;
 
 pub struct EclipseClawMcp {
-    tool_router: ToolRouter<Self>,
     fetch_client: Arc<eclipse_claw_fetch::FetchClient>,
     llm_chain: Option<eclipse_claw_llm::ProviderChain>,
     cloud: Option<CloudClient>,
@@ -159,7 +157,6 @@ impl EclipseClawMcp {
         });
 
         Self {
-            tool_router: Self::tool_router(),
             fetch_client: Arc::new(fetch_client),
             llm_chain,
             cloud,
