@@ -12,7 +12,7 @@ eclipse-claw https://example.com
 eclipse-claw https://example.com -f markdown    # Clean markdown
 eclipse-claw https://example.com -f json        # Full structured JSON
 eclipse-claw https://example.com -f text        # Plain text (no formatting)
-eclipse-claw https://example.com -f llm         # Token-optimized for LLMs (67% fewer tokens)
+eclipse-claw https://example.com -f llm         # Compact markdown optimized for LLM input
 
 # Bare domains work (auto-prepends https://)
 eclipse-claw example.com

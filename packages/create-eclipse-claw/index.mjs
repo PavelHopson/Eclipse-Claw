@@ -1,22 +1,36 @@
 #!/usr/bin/env node
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import {
+  copyFileSync,
+  constants,
+  createWriteStream,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "fs";
 import { createInterface } from "readline";
 import { homedir, platform, arch } from "os";
 import { join, dirname } from "path";
-import { execSync } from "child_process";
-import { createWriteStream } from "fs";
+import { pathToFileURL } from "url";
+import { execFileSync } from "child_process";
+import { createHash, timingSafeEqual } from "crypto";
 import { chmod } from "fs/promises";
 import https from "https";
-import http from "http";
 
 // ── Constants ──
 
 const REPO = "PavelHopson/eclipse-claw";
-const BINARY_NAME = "eclipse-claw-mcp";
+const BINARY_NAME =
+  platform() === "win32" ? "eclipse-claw-mcp.exe" : "eclipse-claw-mcp";
 const INSTALL_DIR = join(homedir(), ".eclipse-claw");
 const BINARY_PATH = join(INSTALL_DIR, BINARY_NAME);
-const VERSION = "latest";
+const MAX_REDIRECTS = 5;
+const MAX_METADATA_BYTES = 2 * 1024 * 1024;
+const MAX_ARCHIVE_BYTES = 256 * 1024 * 1024;
 
 const COLORS = {
   reset: "\x1b[0m",
@@ -166,90 +180,222 @@ function ask(question) {
   });
 }
 
-function download(url) {
+function httpsUrl(url, base) {
+  const parsed = new URL(url, base);
+  if (parsed.protocol !== "https:") {
+    throw new Error(`Refusing non-HTTPS download: ${parsed.href}`);
+  }
+  return parsed;
+}
+
+function download(url, redirects = 0) {
   return new Promise((resolve, reject) => {
-    const client = url.startsWith("https") ? https : http;
-    client
-      .get(url, { headers: { "User-Agent": "create-eclipse-claw" } }, (res) => {
-        // Follow redirects
-        if (
-          res.statusCode >= 300 &&
-          res.statusCode < 400 &&
-          res.headers.location
-        ) {
-          return download(res.headers.location).then(resolve).catch(reject);
-        }
-        if (res.statusCode !== 200) {
-          return reject(new Error(`HTTP ${res.statusCode}`));
-        }
-        const chunks = [];
-        res.on("data", (chunk) => chunks.push(chunk));
-        res.on("end", () => resolve(Buffer.concat(chunks)));
-        res.on("error", reject);
-      })
+    if (redirects > MAX_REDIRECTS) {
+      reject(new Error("Too many download redirects"));
+      return;
+    }
+
+    const parsed = httpsUrl(url);
+    https
+      .get(
+        parsed,
+        { headers: { "User-Agent": "create-eclipse-claw" } },
+        (res) => {
+          // Follow redirects
+          if (
+            res.statusCode >= 300 &&
+            res.statusCode < 400 &&
+            res.headers.location
+          ) {
+            res.resume();
+            const next = httpsUrl(res.headers.location, parsed).href;
+            return download(next, redirects + 1).then(resolve).catch(reject);
+          }
+          if (res.statusCode !== 200) {
+            res.resume();
+            return reject(new Error(`HTTP ${res.statusCode}`));
+          }
+          const chunks = [];
+          let received = 0;
+          res.on("data", (chunk) => {
+            received += chunk.length;
+            if (received > MAX_METADATA_BYTES) {
+              res.destroy(new Error("Release metadata exceeds the size limit"));
+              return;
+            }
+            chunks.push(chunk);
+          });
+          res.on("end", () => resolve(Buffer.concat(chunks)));
+          res.on("error", reject);
+        },
+      )
       .on("error", reject);
   });
 }
 
-async function downloadFile(url, dest) {
+async function downloadFile(url, dest, redirects = 0) {
   return new Promise((resolve, reject) => {
-    const client = url.startsWith("https") ? https : http;
-    client
-      .get(url, { headers: { "User-Agent": "create-eclipse-claw" } }, (res) => {
-        if (
-          res.statusCode >= 300 &&
-          res.statusCode < 400 &&
-          res.headers.location
-        ) {
-          return downloadFile(res.headers.location, dest)
-            .then(resolve)
-            .catch(reject);
-        }
-        if (res.statusCode !== 200) {
-          return reject(new Error(`HTTP ${res.statusCode}`));
-        }
-        const file = createWriteStream(dest);
-        res.pipe(file);
-        file.on("finish", () => {
-          file.close();
-          resolve();
-        });
-        file.on("error", reject);
-      })
+    if (redirects > MAX_REDIRECTS) {
+      reject(new Error("Too many archive redirects"));
+      return;
+    }
+
+    const parsed = httpsUrl(url);
+    https
+      .get(
+        parsed,
+        { headers: { "User-Agent": "create-eclipse-claw" } },
+        (res) => {
+          if (
+            res.statusCode >= 300 &&
+            res.statusCode < 400 &&
+            res.headers.location
+          ) {
+            res.resume();
+            const next = httpsUrl(res.headers.location, parsed).href;
+            return downloadFile(next, dest, redirects + 1)
+              .then(resolve)
+              .catch(reject);
+          }
+          if (res.statusCode !== 200) {
+            res.resume();
+            return reject(new Error(`HTTP ${res.statusCode}`));
+          }
+
+          const file = createWriteStream(dest);
+          let received = 0;
+          const fail = (error) => {
+            file.destroy();
+            rmSync(dest, { force: true });
+            reject(error);
+          };
+
+          res.on("data", (chunk) => {
+            received += chunk.length;
+            if (received > MAX_ARCHIVE_BYTES) {
+              res.destroy(new Error("Release archive exceeds the size limit"));
+            }
+          });
+          res.pipe(file);
+          file.on("finish", () => {
+            file.close(resolve);
+          });
+          file.on("error", fail);
+          res.on("error", fail);
+        },
+      )
       .on("error", reject);
   });
 }
 
-function getAssetName() {
+function getReleaseTarget() {
   const os = platform();
   const a = arch();
 
-  if (os === "darwin" && a === "arm64")
-    return `eclipse-claw-mcp-aarch64-apple-darwin.tar.gz`;
-  if (os === "darwin" && a === "x64")
-    return `eclipse-claw-mcp-x86_64-apple-darwin.tar.gz`;
-  if (os === "linux" && a === "x64")
-    return `eclipse-claw-mcp-x86_64-unknown-linux-gnu.tar.gz`;
-  if (os === "linux" && a === "arm64")
-    return `eclipse-claw-mcp-aarch64-unknown-linux-gnu.tar.gz`;
-  if (os === "win32" && a === "x64")
-    return `eclipse-claw-mcp-x86_64-pc-windows-msvc.zip`;
+  if (os === "darwin" && a === "arm64") return "aarch64-apple-darwin";
+  if (os === "darwin" && a === "x64") return "x86_64-apple-darwin";
+  if (os === "linux" && a === "x64") return "x86_64-unknown-linux-gnu";
+  if (os === "linux" && a === "arm64") return "aarch64-unknown-linux-gnu";
 
   return null;
 }
 
+function parseExpectedChecksum(manifest, assetName) {
+  for (const line of manifest.split(/\r?\n/)) {
+    const match = line.match(/^([a-fA-F0-9]{64})\s+\*?(.+)$/);
+    if (match && match[2].trim() === assetName) {
+      return match[1].toLowerCase();
+    }
+  }
+  throw new Error(`SHA256SUMS does not contain ${assetName}`);
+}
+
+function verifyChecksum(path, expectedHex) {
+  const actual = createHash("sha256").update(readFileSync(path)).digest();
+  const expected = Buffer.from(expectedHex, "hex");
+  if (expected.length !== actual.length || !timingSafeEqual(actual, expected)) {
+    throw new Error("Release archive SHA-256 verification failed");
+  }
+}
+
+function validateArchiveEntries(entries, root) {
+  return (
+    entries.length > 0 &&
+    entries.every((entry) => {
+      const segments = entry.split("/");
+      return (
+        !entry.startsWith("/") &&
+        !entry.includes("\\") &&
+        !segments.includes("..") &&
+        (entry === root || entry.startsWith(`${root}/`))
+      );
+    })
+  );
+}
+
+function extractVerifiedArchive(path, releaseTag, target) {
+  const root = `eclipse-claw-${releaseTag}-${target}`;
+  const binaryEntry = `${root}/eclipse-claw-mcp`;
+  const entries = execFileSync("tar", ["tzf", path], {
+    encoding: "utf-8",
+    maxBuffer: MAX_ARCHIVE_BYTES,
+  })
+    .split(/\r?\n/)
+    .filter(Boolean);
+
+  if (!validateArchiveEntries(entries, root)) {
+    throw new Error("Release archive contains an unsafe path");
+  }
+
+  if (entries.filter((entry) => entry === binaryEntry).length !== 1) {
+    throw new Error(
+      "Verified release archive must contain one eclipse-claw-mcp binary",
+    );
+  }
+
+  const binary = execFileSync("tar", ["xOzf", path, binaryEntry], {
+    maxBuffer: MAX_ARCHIVE_BYTES,
+  });
+  if (binary.length === 0) {
+    throw new Error("Verified eclipse-claw-mcp binary is empty");
+  }
+  writeFileSync(BINARY_PATH, binary, { mode: 0o755 });
+}
+
 function readJsonFile(path) {
+  if (!existsSync(path)) return {};
+
   try {
-    return JSON.parse(readFileSync(path, "utf-8"));
-  } catch {
-    return {};
+    const text = readFileSync(path, "utf-8");
+    return text.trim() ? JSON.parse(text) : {};
+  } catch (error) {
+    throw new Error(
+      `Refusing to overwrite invalid JSON config ${path}: ${error.message}`,
+    );
+  }
+}
+
+function writeTextFileAtomic(path, text) {
+  const dir = dirname(path);
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+
+  const backup = `${path}.eclipse-claw.bak`;
+  if (existsSync(path) && !existsSync(backup)) {
+    copyFileSync(path, backup, constants.COPYFILE_EXCL);
+  }
+
+  const temp = `${path}.eclipse-claw-${process.pid}.tmp`;
+  const mode = existsSync(path) ? statSync(path).mode & 0o777 : 0o600;
+  try {
+    writeFileSync(temp, text, { mode });
+    renameSync(temp, path);
+  } finally {
+    rmSync(temp, { force: true });
   }
 }
 
 function writeJsonFile(path, data) {
-  const dir = dirname(path);
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  writeFileSync(path, JSON.stringify(data, null, 2) + "\n");
+  writeTextFileAtomic(path, JSON.stringify(data, null, 2) + "\n");
 }
 
 function buildMcpEntry(apiKey) {
@@ -267,21 +413,21 @@ function buildMcpEntry(apiKey) {
 function addToClaudeDesktop(configPath, apiKey) {
   const config = readJsonFile(configPath);
   if (!config.mcpServers) config.mcpServers = {};
-  config.mcpServers.eclipse-claw = buildMcpEntry(apiKey);
+  config.mcpServers["eclipse-claw"] = buildMcpEntry(apiKey);
   writeJsonFile(configPath, config);
 }
 
 function addToClaudeCode(configPath, apiKey) {
   const config = readJsonFile(configPath);
   if (!config.mcpServers) config.mcpServers = {};
-  config.mcpServers.eclipse-claw = buildMcpEntry(apiKey);
+  config.mcpServers["eclipse-claw"] = buildMcpEntry(apiKey);
   writeJsonFile(configPath, config);
 }
 
 function addToCursor(configPath, apiKey) {
   const config = readJsonFile(configPath);
   if (!config.mcpServers) config.mcpServers = {};
-  config.mcpServers.eclipse-claw = {
+  config.mcpServers["eclipse-claw"] = {
     command: BINARY_PATH,
     ...(apiKey ? { env: { ECLIPSE_CLAW_API_KEY: apiKey } } : {}),
   };
@@ -291,7 +437,7 @@ function addToCursor(configPath, apiKey) {
 function addToWindsurf(configPath, apiKey) {
   const config = readJsonFile(configPath);
   if (!config.mcpServers) config.mcpServers = {};
-  config.mcpServers.eclipse-claw = buildMcpEntry(apiKey);
+  config.mcpServers["eclipse-claw"] = buildMcpEntry(apiKey);
   writeJsonFile(configPath, config);
 }
 
@@ -316,13 +462,13 @@ function addToVSCodeContinue(configPath, apiKey) {
 function addToOpenCode(configPath, apiKey) {
   const config = readJsonFile(configPath);
   if (!config.mcp) config.mcp = {};
-  config.mcp.eclipse-claw = {
+  config.mcp["eclipse-claw"] = {
     type: "local",
     command: [BINARY_PATH],
     enabled: true,
   };
   if (apiKey) {
-    config.mcp.eclipse-claw.environment = { ECLIPSE_CLAW_API_KEY: apiKey };
+    config.mcp["eclipse-claw"].environment = { ECLIPSE_CLAW_API_KEY: apiKey };
   }
   writeJsonFile(configPath, config);
 }
@@ -330,7 +476,7 @@ function addToOpenCode(configPath, apiKey) {
 function addToAntigravity(configPath, apiKey) {
   const config = readJsonFile(configPath);
   if (!config.mcpServers) config.mcpServers = {};
-  config.mcpServers.eclipse-claw = buildMcpEntry(apiKey);
+  config.mcpServers["eclipse-claw"] = buildMcpEntry(apiKey);
   writeJsonFile(configPath, config);
 }
 
@@ -348,16 +494,16 @@ function addToCodex(configPath, apiKey) {
 
   // Remove any existing eclipse-claw MCP section
   existing = existing.replace(
-    /\n?\[mcp_servers\.eclipse-claw\][^\[]*(?=\[|$)/gs,
+    /^\[mcp_servers\.eclipse-claw\]\r?\n(?:^(?!\[).*(?:\r?\n|$))*/gm,
     "",
   );
 
-  let section = `\n[mcp_servers.eclipse-claw]\ncommand = "${BINARY_PATH}"\nargs = []\nenabled = true\n`;
+  let section = `\n[mcp_servers.eclipse-claw]\ncommand = ${JSON.stringify(BINARY_PATH)}\nargs = []\nenabled = true\n`;
   if (apiKey) {
-    section += `env = { ECLIPSE_CLAW_API_KEY = "${apiKey}" }\n`;
+    section += `env = { ECLIPSE_CLAW_API_KEY = ${JSON.stringify(apiKey)} }\n`;
   }
 
-  writeFileSync(configPath, existing.trimEnd() + "\n" + section);
+  writeTextFileAtomic(configPath, existing.trimEnd() + "\n" + section);
 }
 
 const CONFIG_WRITERS = {
@@ -423,10 +569,24 @@ async function main() {
   }
   console.log();
 
+  if (detected.length > 0) {
+    const confirm = await ask(
+      c("bold", "  Configure these tools? ") + c("dim", "[Y/n]: "),
+    );
+    if (["n", "no"].includes(confirm.toLowerCase())) {
+      console.log(c("yellow", "\n  No configuration files were changed.\n"));
+      process.exit(0);
+    }
+    console.log();
+  }
+
   // 2. Ask for API key
   console.log(c("dim", "  An API key enables cloud features."));
   console.log(
     c("dim", "  Without one, eclipse-claw runs locally (free, no account needed)."),
+  );
+  console.log(
+    c("dim", "  If entered, the key is stored in each selected local MCP config."),
   );
   console.log();
 
@@ -439,79 +599,83 @@ async function main() {
   // 3. Download binary
   console.log(c("bold", "  Downloading eclipse-claw-mcp..."));
 
-  const assetName = getAssetName();
-  if (!assetName) {
-    console.log(c("red", `  Unsupported platform: ${platform()}-${arch()}`));
-    console.log(
-      c(
-        "dim",
-        "  Build from source: cargo install --git https://github.com/PavelHopson/eclipse-claw eclipse-claw-mcp",
-      ),
-    );
-    process.exit(1);
-  }
-
   if (!existsSync(INSTALL_DIR)) {
     mkdirSync(INSTALL_DIR, { recursive: true });
   }
 
   let downloaded = false;
+  let release;
 
   try {
-    // Get latest release URL
     const releaseData = await download(
       `https://api.github.com/repos/${REPO}/releases/latest`,
     );
-    const release = JSON.parse(releaseData.toString());
-    const asset = release.assets?.find((a) => a.name === assetName);
+    release = JSON.parse(releaseData.toString());
+  } catch (e) {
+    throw new Error(`Could not read the latest GitHub release: ${e.message}`);
+  }
 
-    if (asset) {
-      const tarPath = join(INSTALL_DIR, assetName);
-      await downloadFile(asset.browser_download_url, tarPath);
+  if (!/^v\d+\.\d+\.\d+$/.test(release.tag_name || "")) {
+    throw new Error("Latest GitHub release has an invalid version tag");
+  }
 
-      // Extract
-      if (assetName.endsWith(".tar.gz")) {
-        execSync(`tar xzf "${tarPath}" -C "${INSTALL_DIR}"`, {
-          stdio: "ignore",
-        });
-      } else if (assetName.endsWith(".zip")) {
-        execSync(`unzip -o "${tarPath}" -d "${INSTALL_DIR}"`, {
-          stdio: "ignore",
-        });
+  const target = getReleaseTarget();
+  if (target) {
+    const assetName = `eclipse-claw-${release.tag_name}-${target}.tar.gz`;
+    const asset = release.assets?.find((item) => item.name === assetName);
+    const checksums = release.assets?.find((item) => item.name === "SHA256SUMS");
+
+    if (asset && checksums) {
+      const archivePath = join(INSTALL_DIR, assetName);
+      try {
+        const manifest = await download(checksums.browser_download_url);
+        const expected = parseExpectedChecksum(
+          manifest.toString("utf-8"),
+          assetName,
+        );
+        await downloadFile(asset.browser_download_url, archivePath);
+        verifyChecksum(archivePath, expected);
+        extractVerifiedArchive(archivePath, release.tag_name, target);
+        await chmod(BINARY_PATH, 0o755);
+      } finally {
+        rmSync(archivePath, { force: true });
       }
 
-      // Make executable
-      await chmod(BINARY_PATH, 0o755);
-
-      // Cleanup archive
-      try {
-        execSync(`rm "${tarPath}"`, { stdio: "ignore" });
-      } catch {}
-
-      console.log(c("green", `  ✓ Installed to ${BINARY_PATH}`));
+      console.log(
+        c("green", `  ✓ Installed verified ${release.tag_name} to ${BINARY_PATH}`),
+      );
       downloaded = true;
     }
-  } catch (e) {
-    // Release not available yet — expected before first release
   }
 
   if (!downloaded) {
-    // Try cargo install as fallback
     console.log(
-      c("yellow", "  No pre-built binary found. Trying cargo install..."),
+      c(
+        "yellow",
+        `  No verified pre-built binary for ${platform()}-${arch()}. Trying Cargo...`,
+      ),
     );
     try {
-      execSync(
-        `cargo install --git https://github.com/${REPO} eclipse-claw-mcp --root "${INSTALL_DIR}"`,
+      execFileSync(
+        "cargo",
+        [
+          "install",
+          "--git",
+          `https://github.com/${REPO}`,
+          "--tag",
+          release.tag_name,
+          "--locked",
+          "eclipse-claw-mcp",
+          "--root",
+          INSTALL_DIR,
+        ],
         { stdio: "inherit" },
       );
       // cargo install puts binary in INSTALL_DIR/bin/
       const cargoPath = join(INSTALL_DIR, "bin", BINARY_NAME);
       if (existsSync(cargoPath)) {
-        // Move to expected location
-        execSync(`mv "${cargoPath}" "${BINARY_PATH}"`, {
-          stdio: "ignore",
-        });
+        copyFileSync(cargoPath, BINARY_PATH);
+        await chmod(BINARY_PATH, 0o755);
         console.log(c("green", `  ✓ Built and installed to ${BINARY_PATH}`));
         downloaded = true;
       }
@@ -522,7 +686,7 @@ async function main() {
       console.log(
         c(
           "dim",
-          "  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh",
+          `  Install Rust, then retry; Cargo will build the locked ${release.tag_name} source tag.`,
         ),
       );
       process.exit(1);
@@ -557,7 +721,7 @@ async function main() {
   // 5. Verify
   if (downloaded) {
     try {
-      const version = execSync(`"${BINARY_PATH}" --version`, {
+      const version = execFileSync(BINARY_PATH, ["--version"], {
         encoding: "utf-8",
       }).trim();
       console.log(c("green", `  ✓ ${version}`));
@@ -593,7 +757,18 @@ async function main() {
   console.log();
 }
 
-main().catch((e) => {
-  console.error(c("red", `\n  Error: ${e.message}\n`));
-  process.exit(1);
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((e) => {
+    console.error(c("red", `\n  Error: ${e.message}\n`));
+    process.exit(1);
+  });
+}
+
+export {
+  addToClaudeDesktop,
+  addToCodex,
+  httpsUrl,
+  parseExpectedChecksum,
+  validateArchiveEntries,
+  verifyChecksum,
+};
