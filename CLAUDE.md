@@ -18,6 +18,7 @@ eclipse-claw/
     eclipse-claw-llm/      # LLM provider chain (Ollama -> OpenAI -> Anthropic)
                       # + JSON schema extraction, prompt extraction, summarization
     eclipse-claw-pdf/      # PDF text extraction via pdf-extract
+    eclipse-claw-connectors/ # Static allowlist + read-only doctor/fallback policy
     eclipse-claw-mcp/      # MCP server (Model Context Protocol) for AI agents
     eclipse-claw-cli/      # CLI binary
 ```
@@ -56,7 +57,7 @@ Two binaries: `eclipse-claw` (CLI), `eclipse-claw-mcp` (MCP server).
 
 ### MCP Server (`eclipse-claw-mcp`)
 - Model Context Protocol server over stdio transport
-- 8 tools: scrape, crawl, map, batch, extract, summarize, diff, brand
+- 11 tools: scrape, crawl, map, batch, extract, summarize, diff, brand, research, search, doctor
 - Works with Claude Desktop, Claude Code, and any MCP client
 - Uses `rmcp` crate (official Rust MCP SDK)
 
@@ -67,6 +68,9 @@ Two binaries: `eclipse-claw` (CLI), `eclipse-claw-mcp` (MCP server).
 - **RUSTFLAGS are set in `.cargo/config.toml`** — no need to pass manually.
 - **eclipse-claw-llm uses plain reqwest** (NOT primp-patched). LLM APIs don't need TLS fingerprinting.
 - **qwen3 thinking tags** (`<think>`) are stripped at both provider and consumer levels.
+- **Connector registry is static and allowlisted** — no runtime package installation or executable discovery.
+- **Cloud credential is not consent** — automatic fallback additionally requires
+  `ECLIPSE_CLAW_CLOUD_FALLBACK=1`; `doctor` never probes credentials or browser sessions.
 
 ## Build & Test
 

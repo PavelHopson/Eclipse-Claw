@@ -3,6 +3,23 @@
 All notable changes to eclipse-claw are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Added
+- Static allowlisted connector registry shared by REST and MCP without dynamic plugin discovery.
+- Read-only MCP `doctor` tool plus `GET /connectors` and `GET /connectors/doctor` endpoints.
+- Machine-readable readiness, provenance, data-boundary, fallback and safe-next-step fields.
+
+### Changed
+- Automatic local-to-cloud fallback now requires separate explicit consent through
+  `--cloud-fallback` or `ECLIPSE_CLAW_CLOUD_FALLBACK=1`; storing an API key alone no
+  longer authorizes automatic URL or content transfer. Explicit cloud tools remain available.
+
+### Security
+- Connector diagnostics expose only readiness booleans and static policy metadata. They do
+  not probe the network, validate credentials, read browser sessions, install packages or
+  return secret values.
+
 ## [0.3.9] — 2026-04-04
 
 ### Fixed

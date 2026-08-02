@@ -150,9 +150,10 @@ When you have a eclipse-claw API key, the CLI can route through the cloud for bo
 ```bash
 # Set API key (one time)
 export ECLIPSE_CLAW_API_KEY=wc_your_key_here
+export ECLIPSE_CLAW_CLOUD_FALLBACK=1
 
-# Automatic fallback: tries local first, cloud on bot detection
-eclipse-claw https://protected-site.com
+# Explicitly approved fallback: tries local first, cloud on bot detection
+eclipse-claw --cloud-fallback https://protected-site.com
 
 # Force cloud mode (skip local, always use API)
 eclipse-claw --cloud https://spa-site.com
@@ -274,7 +275,8 @@ eclipse-claw-mcp
 #     "eclipse-claw": {
 #       "command": "/path/to/eclipse-claw-mcp",
 #       "env": {
-#         "ECLIPSE_CLAW_API_KEY": "wc_your_key"  // optional, enables cloud fallback
+#         "ECLIPSE_CLAW_API_KEY": "wc_your_key",  // optional, enables explicit cloud tools
+#         "ECLIPSE_CLAW_CLOUD_FALLBACK": "1"       // separate opt-in for automatic fallback
 #       }
 #     }
 #   }

@@ -1,7 +1,8 @@
 /// Cloud API fallback for protected sites.
 ///
 /// When local fetch returns a challenge page, this module retries
-/// via api.webclaw.io. Requires ECLIPSE_CLAW_API_KEY to be set.
+/// via api.webclaw.io. Direct cloud tools require ECLIPSE_CLAW_API_KEY;
+/// automatic fallback additionally requires ECLIPSE_CLAW_CLOUD_FALLBACK=1.
 use std::time::Duration;
 
 use serde_json::{Value, json};
@@ -246,9 +247,12 @@ pub async fn smart_fetch(
         include_raw_html: false,
     };
 
-    let extraction =
-        eclipse_claw_core::extract_with_options(&fetch_result.html, Some(&fetch_result.url), &options)
-            .map_err(|e| format!("Extraction failed: {e}"))?;
+    let extraction = eclipse_claw_core::extract_with_options(
+        &fetch_result.html,
+        Some(&fetch_result.url),
+        &options,
+    )
+    .map_err(|e| format!("Extraction failed: {e}"))?;
 
     // Step 4: Check for JS-rendered pages (low content from large HTML)
     if needs_js_rendering(extraction.metadata.word_count, &fetch_result.html) {
@@ -295,8 +299,8 @@ async fn cloud_fallback(
             Ok(SmartFetchResult::Cloud(resp))
         }
         None => Err(format!(
-            "Bot protection detected on {url}. Set ECLIPSE_CLAW_API_KEY for automatic cloud bypass. \
-             Get a key at https://webclaw.io"
+            "Bot protection or client-side rendering detected on {url}. Automatic cloud transfer is disabled. \
+             Configure ECLIPSE_CLAW_API_KEY and set ECLIPSE_CLAW_CLOUD_FALLBACK=1 only after approving the cloud data boundary."
         )),
     }
 }

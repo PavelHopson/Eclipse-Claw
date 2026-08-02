@@ -71,7 +71,7 @@ npx create-eclipse-claw
 3. Asks for your API key (optional — **works locally without one**)
 4. Writes the MCP config for each detected tool
 
-## 10 MCP Tools
+## 11 MCP Tools
 
 After setup, your AI agent has access to:
 
@@ -87,8 +87,10 @@ After setup, your AI agent has access to:
 | **diff** | Track content changes | No |
 | **brand** | Extract brand identity | No |
 | **research** | Deep multi-page research | Yes |
+| **doctor** | Read-only connector readiness, data boundaries, and fallback policy | No |
 
-**8 of 10 tools work fully offline.** No API key, no cloud, no tracking.
+**9 of 11 tools can run without Eclipse Cloud.** Run `doctor` before research to see
+which connectors are ready and whether automatic cloud transfer is explicitly enabled.
 
 ## Supported Tools
 

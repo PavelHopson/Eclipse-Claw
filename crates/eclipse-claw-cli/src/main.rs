@@ -10,7 +10,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use clap::{Parser, ValueEnum};
-use tracing_subscriber::EnvFilter;
+use eclipse_claw_cdp::{CdpClient, CdpConfig};
 use eclipse_claw_core::{
     ChangeStatus, ContentDiff, ExtractionOptions, ExtractionResult, Metadata, extract_with_options,
     to_llm_text,
@@ -19,9 +19,9 @@ use eclipse_claw_fetch::{
     BatchExtractResult, BrowserProfile, CrawlConfig, CrawlResult, Crawler, FetchClient,
     FetchConfig, FetchResult, PageResult, SitemapEntry,
 };
-use eclipse_claw_cdp::{CdpClient, CdpConfig};
 use eclipse_claw_llm::LlmProvider;
 use eclipse_claw_pdf::PdfMode;
+use tracing_subscriber::EnvFilter;
 
 /// Known anti-bot challenge page titles (case-insensitive prefix match).
 const ANTIBOT_TITLES: &[&str] = &[
@@ -74,7 +74,7 @@ fn warn_empty(url: &str, reason: &EmptyReason) {
         EmptyReason::Antibot => eprintln!(
             "\x1b[33mwarning:\x1b[0m Anti-bot protection detected on {url}\n\
              This site requires CAPTCHA solving or browser rendering.\n\
-             Use the eclipse-claw Cloud API for automatic bypass: https://webclaw.io/pricing"
+             Cloud bypass is available only after explicit cloud selection or fallback consent: https://webclaw.io/pricing"
         ),
         EmptyReason::JsRequired => eprintln!(
             "\x1b[33mwarning:\x1b[0m No content extracted from {url}\n\
@@ -274,13 +274,17 @@ struct Cli {
     llm_base_url: Option<String>,
 
     // -- Cloud API options --
-    /// Eclipse Claw Cloud API key for automatic fallback on bot-protected or JS-rendered sites
+    /// Eclipse Claw Cloud API key for explicit cloud tools and optional fallback
     #[arg(long, env = "ECLIPSE_CLAW_API_KEY")]
     api_key: Option<String>,
 
     /// Force all requests through the cloud API (skip local extraction)
     #[arg(long)]
     cloud: bool,
+
+    /// Allow automatic local-to-cloud fallback after approving the cloud data boundary
+    #[arg(long)]
+    cloud_fallback: bool,
 
     /// Run deep research on a topic via the cloud API. Requires --api-key.
     /// Saves full result (report + sources + findings) to a JSON file.
@@ -637,7 +641,8 @@ impl FetchOutput {
 }
 
 /// Fetch a URL and extract content, handling PDF detection automatically.
-/// Falls back to cloud API when bot protection or JS rendering is detected.
+/// Falls back to cloud API only when bot protection or JS rendering is detected
+/// and the user explicitly enabled automatic cloud transfer.
 async fn fetch_and_extract(cli: &Cli) -> Result<FetchOutput, String> {
     // Local sources: read and extract as HTML
     if cli.stdin {
@@ -671,8 +676,8 @@ async fn fetch_and_extract(cli: &Cli) -> Result<FetchOutput, String> {
 
     // --cloud: skip local, go straight to cloud API
     if cli.cloud {
-        let c =
-            cloud_client.ok_or("--cloud requires ECLIPSE_CLAW_API_KEY (set via env or --api-key)")?;
+        let c = cloud_client
+            .ok_or("--cloud requires ECLIPSE_CLAW_API_KEY (set via env or --api-key)")?;
         let options = build_extraction_options(cli);
         let format_str = match cli.format {
             OutputFormat::Markdown => "markdown",
@@ -702,10 +707,15 @@ async fn fetch_and_extract(cli: &Cli) -> Result<FetchOutput, String> {
         .await
         .map_err(|e| format!("fetch error: {e}"))?;
 
-    // Check if we should fall back to cloud
+    // Check if we should fall back to cloud. A credential alone is not consent
+    // to transmit the URL or extracted content to another service.
     let reason = detect_empty(&result);
     if !matches!(reason, EmptyReason::None) {
-        if let Some(ref c) = cloud_client {
+        let cloud_fallback_enabled = eclipse_claw_connectors::automatic_cloud_fallback_allowed(
+            cloud_client.is_some(),
+            cli.cloud_fallback || eclipse_claw_connectors::cloud_fallback_enabled(),
+        );
+        if cloud_fallback_enabled && let Some(ref c) = cloud_client {
             eprintln!("\x1b[36minfo:\x1b[0m falling back to cloud API...");
             let format_str = match cli.format {
                 OutputFormat::Markdown => "markdown",
@@ -730,6 +740,10 @@ async fn fetch_and_extract(cli: &Cli) -> Result<FetchOutput, String> {
                     // Fall through to return the local result with a warning
                 }
             }
+        } else if cloud_client.is_some() {
+            eprintln!(
+                "\x1b[33mwarning:\x1b[0m cloud fallback is available but disabled; use --cloud-fallback or ECLIPSE_CLAW_CLOUD_FALLBACK=1 only after approving cloud transfer"
+            );
         }
         warn_empty(url, &reason);
     }
@@ -1066,7 +1080,12 @@ fn print_crawl_output(result: &CrawlResult, format: &OutputFormat, show_metadata
     }
 }
 
-fn print_batch_output(results: &[BatchExtractResult], format: &OutputFormat, show_metadata: bool, jsonl: bool) {
+fn print_batch_output(
+    results: &[BatchExtractResult],
+    format: &OutputFormat,
+    show_metadata: bool,
+    jsonl: bool,
+) {
     // JSONL mode: one compact JSON record per URL, streamed line-by-line.
     // Suitable for large batches, log pipelines, and jq processing.
     if jsonl {
@@ -1088,7 +1107,10 @@ fn print_batch_output(results: &[BatchExtractResult], format: &OutputFormat, sho
                     "error": e.to_string(),
                 }),
             };
-            println!("{}", serde_json::to_string(&record).expect("serialization failed"));
+            println!(
+                "{}",
+                serde_json::to_string(&record).expect("serialization failed")
+            );
         }
         return;
     }

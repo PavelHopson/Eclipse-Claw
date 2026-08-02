@@ -1,6 +1,6 @@
 ---
 name: eclipse-claw
-description: Web extraction engine with antibot bypass. Scrape, crawl, extract, summarize, search, map, diff, monitor, research, and analyze any URL — including Cloudflare-protected sites. Use when you need reliable web content, the built-in web_fetch fails, or you need structured data extraction from web pages.
+description: Web extraction engine with optional antibot bypass. Scrape, crawl, extract, summarize, search, map, diff, monitor, research, and analyze URLs — including Cloudflare-protected sites when cloud transfer is explicitly enabled. Use when you need reliable web content, the built-in web_fetch fails, or you need structured data extraction from web pages.
 homepage: https://webclaw.io
 user-invocable: true
 metadata: {"openclaw":{"emoji":"🦀","requires":{"env":["ECLIPSE_CLAW_API_KEY"]},"primaryEnv":"ECLIPSE_CLAW_API_KEY","homepage":"https://webclaw.io","install":[{"id":"npx","kind":"node","bins":["eclipse-claw-mcp"],"label":"npx create-eclipse-claw"}]}}
@@ -8,7 +8,8 @@ metadata: {"openclaw":{"emoji":"🦀","requires":{"env":["ECLIPSE_CLAW_API_KEY"]
 
 # eclipse-claw
 
-High-quality web extraction with automatic antibot bypass. Beats Firecrawl on extraction quality and handles Cloudflare, DataDome, and JS-rendered pages automatically.
+High-quality local-first web extraction with optional cloud antibot bypass. Cloudflare, DataDome,
+and JS-rendered pages can use the cloud only after the cloud data boundary is explicitly enabled.
 
 ## When to use this skill
 
@@ -80,7 +81,7 @@ curl -X POST https://api.webclaw.io/v1/scrape \
 - `llm` — optimized for LLM consumption: includes page title, URL, and cleaned content with link references. Best for feeding to AI models.
 - `json` — full extraction result with all metadata
 
-**When antibot bypass activates** (automatic, no extra config):
+**When the explicit cloud endpoint handles antibot bypass:**
 ```json
 {
   "antibot": {
@@ -600,7 +601,8 @@ curl -X DELETE https://api.webclaw.io/v1/watch/watch-abc-123 \
 - **Batch over individual scrapes** when fetching multiple URLs — it's faster and more efficient.
 - **Use `map` before `crawl`** to discover the site structure first, then crawl specific sections.
 - **Use `extract` with a JSON schema** for reliable structured output (e.g., pricing tables, product specs, contact info).
-- **Antibot bypass is automatic** — no extra configuration needed. Works on Cloudflare, DataDome, AWS WAF, and JS-rendered SPAs.
+- **Antibot bypass is opt-in** — direct cloud tools need an API key; automatic local-to-cloud
+  fallback also needs `ECLIPSE_CLAW_CLOUD_FALLBACK=1`.
 - **Use `search` with `scrape: true`** to get full page content for each search result in one call instead of searching then scraping separately.
 - **Use `research` for complex questions** that need multiple sources — it handles the search-read-synthesize loop automatically. Enable `deep: true` for thorough analysis.
 - **Use `agent-scrape` for interactive pages** where data is behind filters, pagination, or form submissions that a simple scrape cannot reach.
@@ -611,20 +613,23 @@ curl -X DELETE https://api.webclaw.io/v1/watch/watch-abc-123 \
 The eclipse-claw MCP server uses a **local-first** approach:
 
 1. **Local fetch** — fast, free, no API credits used (~80% of sites)
-2. **Cloud API fallback** — automatic when bot protection or JS rendering is detected
+2. **Cloud API fallback** — attempted on bot protection or JS rendering only after explicit opt-in
 
 This means:
 - Most scrapes cost zero credits (local extraction)
-- Cloudflare, DataDome, AWS WAF sites automatically fall back to the cloud API
-- JS-rendered SPAs (React, Next.js, Vue) also fall back automatically
-- Set `ECLIPSE_CLAW_API_KEY` to enable cloud fallback
+- Cloudflare, DataDome, AWS WAF sites can fall back to the cloud API after opt-in
+- JS-rendered SPAs (React, Next.js, Vue) follow the same opt-in boundary
+- Set `ECLIPSE_CLAW_API_KEY` for explicit cloud tools such as search/research
+- Automatic local-to-cloud fallback additionally requires explicit consent through
+  `ECLIPSE_CLAW_CLOUD_FALLBACK=1`; a stored credential alone never enables it
+- Run the MCP `doctor` tool before research to inspect connector readiness and data boundaries
 
 ## vs web_fetch
 
 | | eclipse-claw | web_fetch |
 |---|---------|-----------|
-| Cloudflare bypass | Automatic (cloud fallback) | Fails (403) |
-| JS-rendered pages | Automatic fallback | Readability only |
+| Cloudflare bypass | Available with explicitly enabled cloud fallback | Fails (403) |
+| JS-rendered pages | Available with explicitly enabled cloud fallback | Readability only |
 | Output quality | 20-step optimization pipeline | Basic HTML parsing |
 | Structured extraction | LLM-powered, schema-based | None |
 | Crawling | Full site crawl with sitemap | Single page only |
