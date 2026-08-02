@@ -93,16 +93,16 @@ async fn fetch_sitemaps(
     }
 
     for sitemap_url in urls {
-        debug!(target = %crate::egress::audit_target(&sitemap_url), depth, "fetching sitemap");
+        debug!(target = %crate::egress::audit_target(sitemap_url), depth, "fetching sitemap");
 
         let xml = match client.fetch(sitemap_url).await {
             Ok(result) if result.status == 200 => result.html,
             Ok(result) => {
-                debug!(target = %crate::egress::audit_target(&sitemap_url), status = result.status, "sitemap not found");
+                debug!(target = %crate::egress::audit_target(sitemap_url), status = result.status, "sitemap not found");
                 continue;
             }
             Err(e) => {
-                debug!(target = %crate::egress::audit_target(&sitemap_url), error = %e, "failed to fetch sitemap");
+                debug!(target = %crate::egress::audit_target(sitemap_url), error = %e, "failed to fetch sitemap");
                 continue;
             }
         };
@@ -131,7 +131,7 @@ async fn fetch_sitemaps(
                 .await;
             }
             SitemapType::Unknown => {
-                debug!(target = %crate::egress::audit_target(&sitemap_url), "unrecognized sitemap format, skipping");
+                debug!(target = %crate::egress::audit_target(sitemap_url), "unrecognized sitemap format, skipping");
             }
         }
     }

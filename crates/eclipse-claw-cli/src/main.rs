@@ -1301,6 +1301,7 @@ async fn run_crawl(cli: &Cli) -> Result<(), String> {
         delay: std::time::Duration::from_millis(cli.delay),
         path_prefix: cli.path_prefix.clone(),
         use_sitemap: cli.sitemap,
+        respect_robots_txt: true,
         include_patterns,
         exclude_patterns,
         progress_tx: Some(progress_tx),
