@@ -3,6 +3,7 @@
 //! The store intentionally accepts a fixed operation identifier rather than a
 //! raw URL, request body, user identifier, header, or secret. Files are JSONL,
 //! append-only within a rotation segment, and private to the service account.
+pub mod agent_plan;
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
