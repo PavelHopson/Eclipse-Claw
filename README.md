@@ -16,6 +16,42 @@
 
 ---
 
+<!-- repository-guide:start -->
+[Первый запуск](#readme-start) · [Что внутри](#readme-map) · [Путеводитель](docs/repository-guide.md#start) · [Карта кода](docs/repository-guide.md#map) · [Проверки](docs/repository-guide.md#checks) · [Границы и права](docs/repository-guide.md#boundaries)
+
+<a id="readme-map"></a>
+
+## Проект за минуту
+
+- **[Rust workspace](<crates>)** — Извлечение и обработка веб-данных отдельными crates.
+- **[Состав сборки](<Cargo.toml>)** — Версия workspace и зависимости Rust-компонентов.
+- **[Fixtures](<scripts/verify-benchmark-fixtures.mjs>)** — Проверка локальных эталонов для benchmark-сценариев.
+
+<a id="readme-start"></a>
+
+## Начать локально
+
+**Среда:** Rust / Cargo с поддержкой edition 2024. **Источник:** [Cargo.toml](<Cargo.toml>).
+
+Из корня клонированного репозитория:
+
+```bash
+cargo build --workspace
+```
+
+Сборка исходников может получать зависимости из registry. CLI/MCP и сетевой сбор данных запускаются отдельно после настройки egress.
+
+<details>
+<summary><strong>Перед первым запуском и изменением кода</strong></summary>
+
+- Команды сверены с исходниками 8 сентября 2026. Это инструкция, а не отметка об успешном запуске или текущем production.
+- Установка зависимостей может обращаться в registry и выполнять lifecycle scripts. Используйте отдельную рабочую среду и демонстрационные данные.
+- Сохраняйте public-only egress, ограничения URL и изоляцию workers; не расширяйте сетевой доступ ради удобства.
+- [CONTRIBUTING.md](<CONTRIBUTING.md>)
+
+</details>
+<!-- repository-guide:end -->
+
 ## Проблема
 
 Ваш AI-агент вызывает `fetch()` и получает **403 Forbidden**. Или 142 КБ сырого HTML, который сжигает токены. **Eclipse Claw решает обе проблемы.**
