@@ -1,3 +1,7 @@
+<!-- project-links:start -->
+[Документация](docs/repository-guide.md) · [Код](https://github.com/PavelHopson/Eclipse-Claw/tree/main) · [История изменений](https://github.com/PavelHopson/Eclipse-Claw/commits/main/)
+<!-- project-links:end -->
+
 <p align="center">
   <img src=".github/banner.png" alt="Eclipse Claw" width="700" />
 </p>
@@ -549,7 +553,9 @@ go get github.com/PavelHopson/eclipse-claw-go   # Go
 
 ---
 
-## Roadmap
+<a id="roadmap"></a>
+
+## Направления развития
 
 ### Crawl Mode
 
